@@ -23,7 +23,7 @@ const (
 )
 
 type Config struct {
-	BinDir string `yaml:"bin_dir"`
+	BinDir string `yaml:"bin_dir,omitempty"`
 	Tools  []Tool `yaml:"tools"`
 }
 
@@ -32,13 +32,14 @@ type Tool struct {
 	Version   string            `yaml:"version"`
 	Source    string            `yaml:"source"`
 	Mode      string            `yaml:"mode"`
-	Checksums map[string]string `yaml:"checksums"`
-	Release   *ReleaseConfig    `yaml:"release"`
+	Checksums map[string]string `yaml:"checksums,omitempty"`
+	Release   *ReleaseConfig    `yaml:"release,omitempty"`
 }
 
 type ReleaseConfig struct {
-	BinaryTemplate   string `yaml:"binary_template"`
-	ChecksumTemplate string `yaml:"checksum_template"`
+	BinaryTemplate   string `yaml:"binary_template,omitempty"`
+	ChecksumTemplate string `yaml:"checksum_template,omitempty"`
+	Extract          string `yaml:"extract,omitempty"` // path within archive to use as the binary; empty = asset is the binary
 }
 
 func (t *Tool) Owner() string {
@@ -63,6 +64,15 @@ func (t *Tool) ChecksumTemplate() string {
 		return t.Release.ChecksumTemplate
 	}
 	return "checksums.txt"
+}
+
+// ExtractPath returns the path within the downloaded archive to use as the binary.
+// An empty string means the downloaded asset is the binary itself.
+func (t *Tool) ExtractPath() string {
+	if t.Release != nil {
+		return t.Release.Extract
+	}
+	return ""
 }
 
 func splitSource(source string) (owner, repo string) {

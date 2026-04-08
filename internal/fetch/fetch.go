@@ -2,6 +2,7 @@ package fetch
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"bytes"
 	"compress/gzip"
 	"fmt"
@@ -136,14 +137,15 @@ func syncTool(fs billy.Filesystem, cfg *config.Config, binDir string, t config.T
 	}
 
 	binTmpl := release.Render(t.BinaryTemplate(), vars)
+	extractPath := release.Render(t.ExtractPath(), vars)
 
 	var binChecksum string
 	switch t.Mode {
 	case config.ModePinned:
-		binChecksum, err = syncPinned(fs, binDir, t, version, goos, goarch, binTmpl)
+		binChecksum, err = syncPinned(fs, binDir, t, version, goos, goarch, binTmpl, extractPath)
 	case config.ModeReleaseChecksums:
 		checksumAsset := release.Render(t.ChecksumTemplate(), vars)
-		binChecksum, err = syncReleaseChecksums(fs, binDir, t, version, binTmpl, checksumAsset)
+		binChecksum, err = syncReleaseChecksums(fs, binDir, t, version, binTmpl, extractPath, checksumAsset)
 	}
 	if err != nil {
 		return err
@@ -152,7 +154,7 @@ func syncTool(fs billy.Filesystem, cfg *config.Config, binDir string, t config.T
 	return receipts.Write(t.Name, version, binChecksum)
 }
 
-func syncPinned(fs billy.Filesystem, binDir string, t config.Tool, version, goos, goarch, binTmpl string) (string, error) {
+func syncPinned(fs billy.Filesystem, binDir string, t config.Tool, version, goos, goarch, assetName, extractPath string) (string, error) {
 	plat := goos + "/" + goarch
 	expected, ok := t.Checksums[plat]
 	if !ok {
@@ -163,39 +165,30 @@ func syncPinned(fs billy.Filesystem, binDir string, t config.Tool, version, goos
 		return "", fmt.Errorf("no checksum for platform %s; available: %s", plat, strings.Join(platforms, ", "))
 	}
 
-	return downloadAndInstall(fs, binDir, t.Name, t.Owner(), t.Repo(), version, binTmpl, expected)
+	return downloadAndInstall(fs, binDir, t.Name, t.Owner(), t.Repo(), version, assetName, extractPath, expected)
 }
 
-func syncReleaseChecksums(fs billy.Filesystem, binDir string, t config.Tool, version, binTmpl, checksumAsset string) (string, error) {
-	// Download the checksum file first.
+func syncReleaseChecksums(fs billy.Filesystem, binDir string, t config.Tool, version, assetName, extractPath, checksumAsset string) (string, error) {
 	checksumURL := release.AssetURL(t.Owner(), t.Repo(), version, checksumAsset)
 	var checksumBuf bytes.Buffer
 	if err := gh.DownloadAsset(checksumURL, &checksumBuf); err != nil {
 		return "", fmt.Errorf("downloading checksum file: %w", err)
 	}
 
-	assetName := release.AssetFilename(binTmpl)
 	expected, err := parseChecksumFile(checksumBuf.Bytes(), assetName)
 	if err != nil {
 		return "", err
 	}
 
-	return downloadAndInstall(fs, binDir, t.Name, t.Owner(), t.Repo(), version, binTmpl, expected)
+	return downloadAndInstall(fs, binDir, t.Name, t.Owner(), t.Repo(), version, assetName, extractPath, expected)
 }
 
-// downloadAndInstall downloads an asset, verifies its checksum, atomically installs it,
-// and returns the SHA-256 of the installed binary for recording in the receipt.
-func downloadAndInstall(fs billy.Filesystem, binDir, name, owner, repo, version, binTmpl, expectedChecksum string) (string, error) {
+// downloadAndInstall downloads an asset, verifies its checksum against expectedChecksum,
+// extracts the binary (if extractPath is set), atomically installs it, and returns the
+// SHA-256 of the installed binary for recording in the receipt.
+func downloadAndInstall(fs billy.Filesystem, binDir, name, owner, repo, version, assetName, extractPath, expectedChecksum string) (string, error) {
 	if err := fs.MkdirAll(binDir, 0755); err != nil {
 		return "", fmt.Errorf("creating bin dir: %w", err)
-	}
-
-	hasTarPath := strings.Contains(binTmpl, "/")
-	var assetName string
-	if hasTarPath {
-		assetName = strings.SplitN(binTmpl, "/", 2)[0] + ".tar.gz"
-	} else {
-		assetName = binTmpl
 	}
 
 	assetURL := release.AssetURL(owner, repo, version, assetName)
@@ -206,24 +199,20 @@ func downloadAndInstall(fs billy.Filesystem, binDir, name, owner, repo, version,
 		return "", fmt.Errorf("downloading %s: %w", assetName, err)
 	}
 
-	// Verify the downloaded asset's checksum.
+	// Verify the downloaded asset's checksum (archive or binary — whatever was declared).
 	data, err := verifyReader(bytes.NewReader(buf.Bytes()), expectedChecksum)
 	if err != nil {
 		return "", fmt.Errorf("%s: %w", name, err)
 	}
 
-	// Extract the binary from the archive if needed.
-	var binData []byte
-	if hasTarPath {
-		binData, err = extractFromTarGz(data, binTmpl)
-		if err != nil {
-			return "", fmt.Errorf("extracting %s from archive: %w", binTmpl, err)
-		}
-	} else {
-		binData = data
+	// Extract the binary from the asset.
+	binData, err := extractBinary(data, assetName, extractPath)
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", name, err)
 	}
 
 	// Compute the binary's own SHA-256 — this is what goes into the receipt.
+	// For archives this will differ from the asset checksum above, which is expected.
 	binChecksum := sha256Hex(binData)
 
 	// Atomically write to bin_dir.
@@ -254,28 +243,33 @@ func downloadAndInstall(fs billy.Filesystem, binDir, name, owner, repo, version,
 	return binChecksum, nil
 }
 
-// resolveVersion returns the concrete version tag for a tool, consulting the cache for "latest".
-func resolveVersion(fs billy.Filesystem, t config.Tool) (string, error) {
-	if t.Version != "latest" {
-		return t.Version, nil
-	}
+// extractBinary extracts the binary from data based on the asset filename extension.
+// If extractPath is empty, the asset itself is the binary (possibly gunzipped if .gz).
+// Supported archive formats: .tar.gz / .tgz, .zip, .gz (gunzip only).
+func extractBinary(data []byte, assetName, extractPath string) ([]byte, error) {
+	switch {
+	case strings.HasSuffix(assetName, ".tar.gz") || strings.HasSuffix(assetName, ".tgz"):
+		if extractPath == "" {
+			return nil, fmt.Errorf("asset %q is a tar archive but no extract path was specified", assetName)
+		}
+		return extractFromTarGz(data, extractPath)
 
-	if v, hit, err := cache.LatestVersion(fs, t.Owner(), t.Repo()); err != nil {
-		return "", err
-	} else if hit {
-		return v, nil
-	}
+	case strings.HasSuffix(assetName, ".zip"):
+		if extractPath == "" {
+			return nil, fmt.Errorf("asset %q is a zip archive but no extract path was specified", assetName)
+		}
+		return extractFromZip(data, extractPath)
 
-	v, err := gh.LatestRelease(t.Owner(), t.Repo())
-	if err != nil {
-		return "", err
-	}
+	case strings.HasSuffix(assetName, ".gz"):
+		// Standalone gzip — no extract path needed, just decompress.
+		return gunzip(data)
 
-	_ = cache.WriteLatestVersion(fs, t.Owner(), t.Repo(), v)
-	return v, nil
+	default:
+		// Direct binary — use as-is.
+		return data, nil
+	}
 }
 
-// extractFromTarGz extracts a named file from a .tar.gz archive and returns its contents.
 func extractFromTarGz(data []byte, path string) ([]byte, error) {
 	gz, err := gzip.NewReader(bytes.NewReader(data))
 	if err != nil {
@@ -296,7 +290,55 @@ func extractFromTarGz(data []byte, path string) ([]byte, error) {
 			return io.ReadAll(tr)
 		}
 	}
-	return nil, fmt.Errorf("file %q not found in archive", path)
+	return nil, fmt.Errorf("%q not found in tar archive", path)
+}
+
+func extractFromZip(data []byte, path string) ([]byte, error) {
+	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return nil, fmt.Errorf("opening zip: %w", err)
+	}
+	for _, f := range zr.File {
+		if f.Name == path || strings.TrimPrefix(f.Name, "./") == path {
+			rc, err := f.Open()
+			if err != nil {
+				return nil, fmt.Errorf("opening %q in zip: %w", path, err)
+			}
+			defer rc.Close()
+			return io.ReadAll(rc)
+		}
+	}
+	return nil, fmt.Errorf("%q not found in zip archive", path)
+}
+
+func gunzip(data []byte) ([]byte, error) {
+	gz, err := gzip.NewReader(bytes.NewReader(data))
+	if err != nil {
+		return nil, fmt.Errorf("opening gzip: %w", err)
+	}
+	defer gz.Close()
+	return io.ReadAll(gz)
+}
+
+// resolveVersion returns the concrete version tag for a tool, consulting the cache for "latest".
+func resolveVersion(fs billy.Filesystem, t config.Tool) (string, error) {
+	if t.Version != "latest" {
+		return t.Version, nil
+	}
+
+	if v, hit, err := cache.LatestVersion(fs, t.Owner(), t.Repo()); err != nil {
+		return "", err
+	} else if hit {
+		return v, nil
+	}
+
+	v, err := gh.LatestRelease(t.Owner(), t.Repo())
+	if err != nil {
+		return "", err
+	}
+
+	_ = cache.WriteLatestVersion(fs, t.Owner(), t.Repo(), v)
+	return v, nil
 }
 
 func selectTools(tools []config.Tool, filter []string) []config.Tool {

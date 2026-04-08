@@ -35,13 +35,3 @@ func Render(pattern string, v Vars) string {
 func AssetURL(owner, repo, tag, assetName string) string {
 	return fmt.Sprintf("https://github.com/%s/%s/releases/download/%s/%s", owner, repo, tag, assetName)
 }
-
-// AssetFilename returns the release asset filename for a rendered binary template.
-// When the template contains a "/" (archive path), the asset is the first path
-// component with ".tar.gz" appended. Otherwise it is the template value itself.
-func AssetFilename(renderedBinaryTemplate string) string {
-	if strings.Contains(renderedBinaryTemplate, "/") {
-		return strings.SplitN(renderedBinaryTemplate, "/", 2)[0] + ".tar.gz"
-	}
-	return renderedBinaryTemplate
-}
