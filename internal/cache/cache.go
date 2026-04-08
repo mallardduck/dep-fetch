@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/go-git/go-billy/v5"
+
 	"github.com/mallardduck/dep-fetch/internal/config"
 )
 
@@ -31,7 +32,7 @@ func LatestVersion(fs billy.Filesystem, owner, repo string) (string, bool, error
 		// Missing cache file is a normal miss.
 		return "", false, nil
 	}
-	defer f.Close()
+	defer f.Close() //nolint:errcheck // read-only; close error is not actionable
 
 	data, err := io.ReadAll(f)
 	if err != nil {
@@ -66,9 +67,11 @@ func WriteLatestVersion(fs billy.Filesystem, owner, repo, version string) error 
 	if err != nil {
 		return fmt.Errorf("writing version cache: %w", err)
 	}
-	defer f.Close()
 
 	_, err = fmt.Fprintf(f, "%d\n%s\n", time.Now().Unix(), version)
+	if closeErr := f.Close(); closeErr != nil && err == nil {
+		err = closeErr
+	}
 	return err
 }
 

@@ -21,7 +21,7 @@ func LatestRelease(owner, repo string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer body.Close()
+	defer body.Close() //nolint:errcheck // read-only response body; close error is not actionable
 
 	var r release
 	if err := json.NewDecoder(body).Decode(&r); err != nil {
@@ -39,7 +39,7 @@ func DownloadAsset(assetURL string, w io.Writer) error {
 	if err != nil {
 		return err
 	}
-	defer body.Close()
+	defer body.Close() //nolint:errcheck // read-only response body; close error is not actionable
 
 	if _, err := io.Copy(w, body); err != nil {
 		return fmt.Errorf("downloading %s: %w", assetURL, err)
@@ -62,7 +62,7 @@ func doGet(url, accept string) (io.ReadCloser, error) {
 		return nil, fmt.Errorf("fetching %s: %w", url, err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		resp.Body.Close()
+		resp.Body.Close() //nolint:errcheck,gosec // already in error path
 		return nil, fmt.Errorf("fetching %s: HTTP %d", url, resp.StatusCode)
 	}
 	return resp.Body, nil

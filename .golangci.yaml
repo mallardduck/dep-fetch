@@ -1,0 +1,26 @@
+version: "2"
+
+linters:
+  default: none
+  enable:
+    - errcheck       # unchecked errors
+    - govet          # go vet checks
+    - staticcheck    # staticcheck SA/S/QF rules
+    - unused         # unused code
+    - misspell       # common misspellings
+    - gocritic       # opinionated but useful style checks
+    - nilerr         # returning nil after checking err != nil
+    - bodyclose      # HTTP response body not closed
+    - gosec          # security checks
+
+formatters:
+  enable:
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/mallardduck/dep-fetch
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

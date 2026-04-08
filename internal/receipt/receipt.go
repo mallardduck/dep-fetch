@@ -32,7 +32,7 @@ func Read(fs billy.Filesystem, name string) (Receipt, error) {
 	if err != nil {
 		return Receipt{}, nil
 	}
-	defer f.Close()
+	defer f.Close() //nolint:errcheck // read-only; close error is not actionable
 
 	data, err := io.ReadAll(f)
 	if err != nil {
@@ -62,7 +62,9 @@ func Write(fs billy.Filesystem, name, version, checksum string) error {
 	tmpName := tmp.Name()
 
 	_, err = fmt.Fprintf(tmp, "%s\n%s\n", version, checksum)
-	tmp.Close()
+	if closeErr := tmp.Close(); closeErr != nil && err == nil {
+		err = closeErr
+	}
 	if err != nil {
 		_ = fs.Remove(tmpName)
 		return fmt.Errorf("writing receipt for %s: %w", name, err)
@@ -94,8 +96,8 @@ func Verify(fs billy.Filesystem, binDir, name, wantVersion string) (bool, error)
 	// Version matches — verify the binary's current checksum against what was recorded.
 	actual, err := hashFile(fs, filepath.Join(binDir, name))
 	if err != nil {
-		// Binary missing or unreadable — not verified.
-		return false, nil
+		// Binary missing or unreadable — treat as not verified, not as a hard error.
+		return false, nil //nolint:nilerr
 	}
 	if !strings.EqualFold(actual, r.Checksum) {
 		return false, fmt.Errorf(
@@ -136,7 +138,7 @@ func hashFile(fs billy.Filesystem, path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
+	defer f.Close() //nolint:errcheck // read-only; close error is not actionable
 
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {

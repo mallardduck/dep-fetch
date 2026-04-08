@@ -91,7 +91,7 @@ func Load(fs billy.Filesystem, configPath, binDir string) (*Config, string, erro
 	if err != nil {
 		return nil, "", fmt.Errorf("reading config %s: %w", path, err)
 	}
-	defer f.Close()
+	defer f.Close() //nolint:errcheck // read-only; close error is not actionable
 
 	data, err := io.ReadAll(f)
 	if err != nil {

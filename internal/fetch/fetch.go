@@ -228,7 +228,9 @@ func downloadAndInstall(fs billy.Filesystem, binDir, name, owner, repo, version,
 	tmpName := tmp.Name()
 
 	_, err = tmp.Write(binData)
-	tmp.Close()
+	if closeErr := tmp.Close(); closeErr != nil && err == nil {
+		err = closeErr
+	}
 	if err != nil {
 		_ = fs.Remove(tmpName)
 		return "", fmt.Errorf("writing binary for %s: %w", name, err)
@@ -241,7 +243,7 @@ func downloadAndInstall(fs billy.Filesystem, binDir, name, owner, repo, version,
 	}
 
 	// Set executable bit. go-billy's osfs does not expose chmod, so fall back to os.Chmod.
-	if err := os.Chmod(dest, 0755); err != nil {
+	if err := os.Chmod(dest, 0755); err != nil { //nolint:gosec // 0755 is intentional for installed executables
 		return "", fmt.Errorf("chmod %s: %w", name, err)
 	}
 
@@ -280,7 +282,7 @@ func extractFromTarGz(data []byte, path string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("opening gzip: %w", err)
 	}
-	defer gz.Close()
+	defer gz.Close() //nolint:errcheck // read-only decompression; close error is not actionable
 
 	tr := tar.NewReader(gz)
 	for {
@@ -309,7 +311,7 @@ func extractFromZip(data []byte, path string) ([]byte, error) {
 			if err != nil {
 				return nil, fmt.Errorf("opening %q in zip: %w", path, err)
 			}
-			defer rc.Close()
+			defer rc.Close() //nolint:errcheck // read-only; close error is not actionable
 			return io.ReadAll(rc)
 		}
 	}
@@ -321,7 +323,7 @@ func gunzip(data []byte) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("opening gzip: %w", err)
 	}
-	defer gz.Close()
+	defer gz.Close() //nolint:errcheck // read-only decompression; close error is not actionable
 	return io.ReadAll(gz)
 }
 
