@@ -12,7 +12,6 @@ type Vars struct {
 	Name    string
 	OS      string
 	Arch    string
-	ArchAlt string // alternative arch name, e.g. x86_64 for amd64
 	Version string // e.g. v0.18.0
 }
 
@@ -24,11 +23,12 @@ var tokenRe = regexp.MustCompile(`\{([^}|]+)(?:\|([^}]*))?\}`)
 // Modifiers are applied left-to-right and chained with additional `|` separators.
 //
 // Supported modifiers:
-//   - upper            — strings.ToUpper
-//   - lower            — strings.ToLower
-//   - title            — capitalise first character only (e.g. darwin → Darwin)
-//   - trimprefix:ARG   — strings.TrimPrefix(val, ARG)
-//   - trimsuffix:ARG   — strings.TrimSuffix(val, ARG)
+//   - upper              — strings.ToUpper
+//   - lower              — strings.ToLower
+//   - title              — capitalise first character only (e.g. darwin → Darwin)
+//   - trimprefix:ARG     — strings.TrimPrefix(val, ARG)
+//   - trimsuffix:ARG     — strings.TrimSuffix(val, ARG)
+//   - replace:FROM=TO    — replace exact value (e.g. amd64 → x86_64); noop if no match
 //
 // Design restriction: modifier arguments (the part after ':') must not contain a
 // pipe character, because pipes are the modifier separator. This is unlikely to
@@ -37,11 +37,10 @@ var tokenRe = regexp.MustCompile(`\{([^}|]+)(?:\|([^}]*))?\}`)
 // Unknown variables or modifiers are left as-is.
 func Render(pattern string, v Vars) string {
 	vars := map[string]string{
-		"name":     v.Name,
-		"os":       v.OS,
-		"arch":     v.Arch,
-		"arch_alt": v.ArchAlt,
-		"version":  v.Version,
+		"name":    v.Name,
+		"os":      v.OS,
+		"arch":    v.Arch,
+		"version": v.Version,
 	}
 	return tokenRe.ReplaceAllStringFunc(pattern, func(token string) string {
 		m := tokenRe.FindStringSubmatch(token)
@@ -67,6 +66,11 @@ func Render(pattern string, v Vars) string {
 				val = strings.TrimPrefix(val, arg)
 			case "trimsuffix":
 				val = strings.TrimSuffix(val, arg)
+			case "replace":
+				from, to, ok := strings.Cut(arg, "=")
+				if ok && val == from {
+					val = to
+				}
 			}
 		}
 		return val

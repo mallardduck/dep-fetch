@@ -89,7 +89,6 @@ tools:
 | `{name}` | `charts-build-scripts` |
 | `{os}` | `linux`, `darwin` |
 | `{arch}` | `amd64`, `arm64` |
-| `{arch_alt}` | `x86_64` (amd64), `arm64` |
 | `{version}` | `v0.18.0` |
 
 ### Template Modifiers
@@ -103,6 +102,7 @@ Modifiers transform a variable's value. Apply with `|` after the variable name; 
 | `title` | Capitalise first character | `{os\|title}` → `Linux` |
 | `trimprefix:X` | Remove leading string X | `{version\|trimprefix:v}` → `0.18.0` |
 | `trimsuffix:X` | Remove trailing string X | `{name\|trimsuffix:-tool}` → `charts-build-scripts` |
+| `replace:FROM=TO` | Replace exact value | `{arch\|replace:amd64=x86_64}` → `x86_64` |
 
 Chain example: `{version|trimprefix:v|trimsuffix:.0}` strips the `v` prefix then the `.0` patch suffix (e.g. `v1.2.0` → `1.2`).
 

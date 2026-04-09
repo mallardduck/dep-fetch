@@ -8,7 +8,6 @@ var defaultVars = Vars{
 	Name:    "mytool",
 	OS:      "linux",
 	Arch:    "amd64",
-	ArchAlt: "x86_64",
 	Version: "v1.2.3",
 }
 
@@ -26,8 +25,26 @@ func TestRender(t *testing.T) {
 			want:    "mytool_linux_amd64",
 		},
 		{
-			name:    "arch_alt and version",
-			pattern: "{name}_{version}_{arch_alt}",
+			name:    "replace modifier maps matching value",
+			pattern: "{arch|replace:amd64=x86_64}",
+			vars:    defaultVars,
+			want:    "x86_64",
+		},
+		{
+			name:    "replace modifier no match is noop",
+			pattern: "{arch|replace:arm64=aarch64}",
+			vars:    defaultVars,
+			want:    "amd64",
+		},
+		{
+			name:    "replace modifier chained for multiple mappings",
+			pattern: "{os|replace:darwin=macOS|replace:linux=Linux}",
+			vars:    Vars{OS: "darwin"},
+			want:    "macOS",
+		},
+		{
+			name:    "replace modifier goreleaser arch pattern",
+			pattern: "{name}_{version}_{arch|replace:amd64=x86_64}",
 			vars:    defaultVars,
 			want:    "mytool_v1.2.3_x86_64",
 		},

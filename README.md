@@ -78,7 +78,6 @@ Asset name templates support the following variables and modifiers:
 | `{name}` | Tool name | `golangci-lint` |
 | `{os}` | Operating system | `linux`, `darwin` |
 | `{arch}` | Architecture | `amd64`, `arm64` |
-| `{arch_alt}` | Alternate arch name | `x86_64` (amd64), `arm64` |
 | `{version}` | Full version tag | `v2.11.4` |
 
 Modifiers can be applied and chained with additional `|` separators (applied left to right):
@@ -90,6 +89,7 @@ Modifiers can be applied and chained with additional `|` separators (applied lef
 | `title` | Capitalise first character | `{os\|title}` → `Linux` |
 | `trimprefix:X` | Remove leading string X | `{version\|trimprefix:v}` → `2.11.4` |
 | `trimsuffix:X` | Remove trailing string X | `{name\|trimsuffix:-tool}` → `charts-build-scripts` |
+| `replace:FROM=TO` | Replace exact value | `{arch\|replace:amd64=x86_64}` → `x86_64` |
 
 Chain example: `{version\|trimprefix:v\|trimsuffix:.0}` strips the `v` prefix then the `.0` patch suffix (e.g. `v1.2.0` → `1.2`).
 
