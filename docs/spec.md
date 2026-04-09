@@ -51,7 +51,7 @@ tools:
     # Optional overrides for release artifact naming conventions:
     release:
       binary_template: "ob-charts-tool_{os}_{arch}"
-      checksum_template: "ob-charts-tool_{version_no_v}_checksums.txt"
+      checksum_template: "ob-charts-tool_{version|trimprefix:v}_checksums.txt"
 
   # pinned mode: version AND per-platform checksums are both managed by Renovate.
   - name: golangci-lint
@@ -90,7 +90,6 @@ tools:
 | `{os}` | `linux`, `darwin` |
 | `{arch}` | `amd64`, `arm64` |
 | `{version}` | `v0.18.0` |
-| `{version_no_v}` | `0.18.0` |
 
 Windows is out of scope for the initial build (see [Platform Detection](#platform-detection)).
 
@@ -229,6 +228,6 @@ Until this subcommand exists, onboarding a new tool is a manual edit to `.bin-de
 | Current script | Config equivalent |
 |---|---|
 | `scripts/pull-scripts` | `mode: release-checksums`, `source: rancher/charts-build-scripts` |
-| `dev-scripts/pull-scripts` | `mode: release-checksums`, `source: rancher/ob-charts-tool`, `checksum_template: ob-charts-tool_{version_no_v}_checksums.txt` |
+| `dev-scripts/pull-scripts` | `mode: release-checksums`, `source: rancher/ob-charts-tool`, `checksum_template: ob-charts-tool_{version|trimprefix:v}_checksums.txt` |
 
 Once the tool is in place, both scripts can be deleted and Makefile/GHA targets updated to call `dep-fetch sync`.
