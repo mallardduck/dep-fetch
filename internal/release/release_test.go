@@ -1,0 +1,155 @@
+package release
+
+import (
+	"testing"
+)
+
+var defaultVars = Vars{
+	Name:    "mytool",
+	OS:      "linux",
+	Arch:    "amd64",
+	ArchAlt: "x86_64",
+	Version: "v1.2.3",
+}
+
+func TestRender(t *testing.T) {
+	tests := []struct {
+		name    string
+		pattern string
+		vars    Vars
+		want    string
+	}{
+		{
+			name:    "basic substitutions",
+			pattern: "{name}_{os}_{arch}",
+			vars:    defaultVars,
+			want:    "mytool_linux_amd64",
+		},
+		{
+			name:    "arch_alt and version",
+			pattern: "{name}_{version}_{arch_alt}",
+			vars:    defaultVars,
+			want:    "mytool_v1.2.3_x86_64",
+		},
+		{
+			name:    "full archive name",
+			pattern: "{name}_{version}_{os}_{arch}.tar.gz",
+			vars:    defaultVars,
+			want:    "mytool_v1.2.3_linux_amd64.tar.gz",
+		},
+		{
+			name:    "upper modifier",
+			pattern: "{os|upper}",
+			vars:    defaultVars,
+			want:    "LINUX",
+		},
+		{
+			name:    "lower modifier",
+			pattern: "{name|lower}",
+			vars:    Vars{Name: "MyTool"},
+			want:    "mytool",
+		},
+		{
+			name:    "title modifier",
+			pattern: "{os|title}",
+			vars:    defaultVars,
+			want:    "Linux",
+		},
+		{
+			name:    "title modifier on empty string",
+			pattern: "{os|title}",
+			vars:    Vars{OS: ""},
+			want:    "",
+		},
+		{
+			name:    "trimprefix modifier strips v prefix",
+			pattern: "{version|trimprefix:v}",
+			vars:    defaultVars,
+			want:    "1.2.3",
+		},
+		{
+			name:    "trimprefix modifier no match is noop",
+			pattern: "{version|trimprefix:x}",
+			vars:    defaultVars,
+			want:    "v1.2.3",
+		},
+		{
+			name:    "trimsuffix modifier",
+			pattern: "{name|trimsuffix:tool}",
+			vars:    defaultVars,
+			want:    "my",
+		},
+		{
+			name:    "chained modifiers upper then trimprefix",
+			pattern: "{os|upper|trimprefix:LIN}",
+			vars:    defaultVars,
+			want:    "UX",
+		},
+		{
+			name:    "chained trimprefix then trimsuffix",
+			pattern: "{version|trimprefix:v|trimsuffix:.3}",
+			vars:    defaultVars,
+			want:    "1.2",
+		},
+		{
+			name:    "darwin title case",
+			pattern: "{os|title}",
+			vars:    Vars{OS: "darwin"},
+			want:    "Darwin",
+		},
+		{
+			name:    "unknown variable left as-is",
+			pattern: "{unknown_var}",
+			vars:    defaultVars,
+			want:    "{unknown_var}",
+		},
+		{
+			name:    "unknown modifier still substitutes value",
+			pattern: "{os|bogusmod}",
+			vars:    defaultVars,
+			want:    "linux",
+		},
+		{
+			name:    "empty pattern",
+			pattern: "",
+			vars:    defaultVars,
+			want:    "",
+		},
+		{
+			name:    "no template tokens",
+			pattern: "checksums.txt",
+			vars:    defaultVars,
+			want:    "checksums.txt",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := Render(tt.pattern, tt.vars)
+			if got != tt.want {
+				t.Errorf("Render(%q) = %q, want %q", tt.pattern, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestAssetURL(t *testing.T) {
+	tests := []struct {
+		owner, repo, tag, asset string
+		want                    string
+	}{
+		{
+			owner: "rancher", repo: "dep-fetch", tag: "v1.0.0", asset: "dep-fetch_linux_amd64",
+			want: "https://github.com/rancher/dep-fetch/releases/download/v1.0.0/dep-fetch_linux_amd64",
+		},
+		{
+			owner: "owner", repo: "repo", tag: "v0.1.2", asset: "checksums.txt",
+			want: "https://github.com/owner/repo/releases/download/v0.1.2/checksums.txt",
+		},
+	}
+	for _, tt := range tests {
+		got := AssetURL(tt.owner, tt.repo, tt.tag, tt.asset)
+		if got != tt.want {
+			t.Errorf("AssetURL(%q,%q,%q,%q) = %q, want %q", tt.owner, tt.repo, tt.tag, tt.asset, got, tt.want)
+		}
+	}
+}

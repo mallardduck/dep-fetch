@@ -89,7 +89,22 @@ tools:
 | `{name}` | `charts-build-scripts` |
 | `{os}` | `linux`, `darwin` |
 | `{arch}` | `amd64`, `arm64` |
+| `{arch_alt}` | `x86_64` (amd64), `arm64` |
 | `{version}` | `v0.18.0` |
+
+### Template Modifiers
+
+Modifiers transform a variable's value. Apply with `|` after the variable name; chain multiple modifiers with additional `|` separators (applied left to right):
+
+| Modifier | Description | Example |
+|---|---|---|
+| `upper` | Uppercase | `{os\|upper}` → `LINUX` |
+| `lower` | Lowercase | `{os\|lower}` → `linux` |
+| `title` | Capitalise first character | `{os\|title}` → `Linux` |
+| `trimprefix:X` | Remove leading string X | `{version\|trimprefix:v}` → `0.18.0` |
+| `trimsuffix:X` | Remove trailing string X | `{name\|trimsuffix:-tool}` → `charts-build-scripts` |
+
+Chain example: `{version|trimprefix:v|trimsuffix:.0}` strips the `v` prefix then the `.0` patch suffix (e.g. `v1.2.0` → `1.2`).
 
 Windows is out of scope for the initial build (see [Platform Detection](#platform-detection)).
 

@@ -8,7 +8,7 @@ import (
 	"os"
 )
 
-const apiBase = "https://api.github.com"
+var apiBase = "https://api.github.com"
 
 type release struct {
 	TagName string `json:"tag_name"`

@@ -21,7 +21,7 @@ var tokenRe = regexp.MustCompile(`\{([^}|]+)(?:\|([^}]*))?\}`)
 
 // Render substitutes all template variables in a release asset name pattern.
 // Tokens take the form {variable} or {variable|modifier1,modifier2,...}.
-// Modifiers are applied left-to-right.
+// Modifiers are applied left-to-right and chained with additional `|` separators.
 //
 // Supported modifiers:
 //   - upper            — strings.ToUpper
@@ -31,9 +31,8 @@ var tokenRe = regexp.MustCompile(`\{([^}|]+)(?:\|([^}]*))?\}`)
 //   - trimsuffix:ARG   — strings.TrimSuffix(val, ARG)
 //
 // Design restriction: modifier arguments (the part after ':') must not contain a
-// comma, because commas are the modifier separator. Any future modifier whose
-// argument requires a comma will need its own delimiter or a revised parsing
-// strategy.
+// pipe character, because pipes are the modifier separator. This is unlikely to
+// be a problem in practice since asset names do not contain pipes.
 //
 // Unknown variables or modifiers are left as-is.
 func Render(pattern string, v Vars) string {
@@ -53,7 +52,7 @@ func Render(pattern string, v Vars) string {
 		if m[2] == "" {
 			return val
 		}
-		for mod := range strings.SplitSeq(m[2], ",") {
+		for mod := range strings.SplitSeq(m[2], "|") {
 			name, arg, _ := strings.Cut(mod, ":")
 			switch name {
 			case "upper":

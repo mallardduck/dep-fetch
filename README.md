@@ -81,7 +81,7 @@ Asset name templates support the following variables and modifiers:
 | `{arch_alt}` | Alternate arch name | `x86_64` (amd64), `arm64` |
 | `{version}` | Full version tag | `v2.11.4` |
 
-Modifiers can be applied:
+Modifiers can be applied and chained with additional `|` separators (applied left to right):
 
 | Modifier | Description | Example |
 |---|---|---|
@@ -90,4 +90,6 @@ Modifiers can be applied:
 | `title` | Capitalise first character | `{os\|title}` → `Linux` |
 | `trimprefix:X` | Remove leading string X | `{version\|trimprefix:v}` → `2.11.4` |
 | `trimsuffix:X` | Remove trailing string X | `{name\|trimsuffix:-tool}` → `charts-build-scripts` |
+
+Chain example: `{version\|trimprefix:v\|trimsuffix:.0}` strips the `v` prefix then the `.0` patch suffix (e.g. `v1.2.0` → `1.2`).
 
