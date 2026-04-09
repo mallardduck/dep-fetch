@@ -1,0 +1,189 @@
+# This GitHub Action fetches and verifies all binary dependencies declared in
+# the repository's .bin-deps.yaml using dep-fetch.
+#
+# dep-fetch itself is downloaded from the specified release (or the latest
+# release when no version is given). Its SHA-256 checksum is verified against
+# the release's checksums.txt before execution. Releases are immutable and
+# attestation-enabled, making checksums.txt a sound trust anchor.
+#
+# After this action runs, all declared tools are available under bin-dir and
+# that directory is added to PATH for subsequent steps.
+#
+# Example usage (pinned version — recommended for production workflows):
+#
+#   steps:
+#     - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+#
+#     - uses: rancher/dep-fetch/actions/sync-deps@v0.1.0
+#       with:
+#         version: v0.1.0
+#
+#     - name: Run golangci-lint
+#       run: golangci-lint run ./...
+#
+# Example usage (latest version — convenient for local/dev workflows):
+#
+#     - uses: rancher/dep-fetch/actions/sync-deps@main
+
+name: sync-deps
+description: >
+  Fetches and verifies all binary dependencies declared in .bin-deps.yaml
+  using dep-fetch. dep-fetch itself is downloaded and its SHA-256 checksum is
+  verified against the release checksums.txt before execution. All resolved
+  tools are added to PATH.
+
+inputs:
+  version:
+    description: >
+      The dep-fetch release tag to install (e.g. v0.1.0). When omitted, the
+      latest published release is resolved automatically.
+    required: false
+    default: ""
+
+  config:
+    description: >
+      Path to the .bin-deps.yaml config file. Defaults to dep-fetch's own
+      resolution order when not set.
+    required: false
+    default: ""
+
+  bin-dir:
+    description: >
+      Directory where resolved binaries are written. Defaults to ./bin.
+      This directory is appended to PATH after sync completes.
+    required: false
+    default: "./bin"
+
+  skip-cache:
+    description: >
+      Set to 'true' to bypass the version cache when resolving 'latest'
+      dependencies.
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+
+  steps:
+    - name: Detect platform
+      id: platform
+      shell: bash
+      run: |
+        OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
+        RAW_ARCH="$(uname -m)"
+
+        case "${RAW_ARCH}" in
+          x86_64)  ARCH="amd64" ;;
+          aarch64) ARCH="arm64" ;;
+          *)
+            echo "Unsupported architecture: ${RAW_ARCH}"
+            exit 1
+            ;;
+        esac
+
+        echo "os=${OS}"     >> "${GITHUB_OUTPUT}"
+        echo "arch=${ARCH}" >> "${GITHUB_OUTPUT}"
+
+    - name: Resolve version
+      id: version
+      shell: bash
+      env:
+        INPUT_VERSION: ${{ inputs.version }}
+        GH_TOKEN:      ${{ github.token }}
+      run: |
+        if [[ -n "${INPUT_VERSION}" ]]; then
+          echo "version=${INPUT_VERSION}" >> "${GITHUB_OUTPUT}"
+          exit 0
+        fi
+
+        echo "No version specified — resolving latest dep-fetch release..."
+
+        VERSION="$(curl --fail --silent --show-error --location \
+          --header "Authorization: Bearer ${GH_TOKEN}" \
+          --header "Accept: application/vnd.github+json" \
+          --header "X-GitHub-Api-Version: 2022-11-28" \
+          "https://api.github.com/repos/rancher/dep-fetch/releases/latest" \
+          | grep '"tag_name"' | head -1 | awk -F'"' '{print $4}')"
+
+        if [[ -z "${VERSION}" ]]; then
+          echo "Failed to resolve the latest dep-fetch version."
+          exit 1
+        fi
+
+        echo "Resolved latest version: ${VERSION}"
+        echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+
+    - name: Download and verify dep-fetch
+      shell: bash
+      env:
+        VERSION: ${{ steps.version.outputs.version }}
+        OS:      ${{ steps.platform.outputs.os }}
+        ARCH:    ${{ steps.platform.outputs.arch }}
+      run: |
+        BASE_URL="https://github.com/rancher/dep-fetch/releases/download/${VERSION}"
+        BINARY_NAME="dep-fetch_${OS}_${ARCH}"
+
+        TMP_DIR="$(mktemp -d)"
+        TMP_BINARY="${TMP_DIR}/dep-fetch"
+        TMP_CHECKSUMS="${TMP_DIR}/checksums.txt"
+
+        echo "Downloading checksums.txt for dep-fetch ${VERSION}..."
+        curl --fail --silent --show-error --location \
+          --output "${TMP_CHECKSUMS}" \
+          "${BASE_URL}/checksums.txt"
+
+        echo "Downloading dep-fetch ${VERSION} (${OS}/${ARCH})..."
+        curl --fail --silent --show-error --location \
+          --output "${TMP_BINARY}" \
+          "${BASE_URL}/${BINARY_NAME}"
+
+        echo "Verifying checksum..."
+        EXPECTED_CHECKSUM="$(grep "${BINARY_NAME}" "${TMP_CHECKSUMS}" | awk '{print $1}')"
+
+        if [[ -z "${EXPECTED_CHECKSUM}" ]]; then
+          echo "No checksum entry found for '${BINARY_NAME}' in checksums.txt."
+          rm -rf "${TMP_DIR}"
+          exit 1
+        fi
+
+        ACTUAL_CHECKSUM="$(sha256sum "${TMP_BINARY}" | awk '{print $1}')"
+
+        if [[ "${ACTUAL_CHECKSUM}" != "${EXPECTED_CHECKSUM}" ]]; then
+          echo "Checksum verification failed for dep-fetch ${VERSION} (${OS}/${ARCH})."
+          echo "  Expected: ${EXPECTED_CHECKSUM}"
+          echo "  Actual:   ${ACTUAL_CHECKSUM}"
+          rm -rf "${TMP_DIR}"
+          exit 1
+        fi
+
+        echo "Checksum verified."
+
+        INSTALL_DIR="${RUNNER_TOOL_CACHE}/dep-fetch/${VERSION}/${OS}/${ARCH}"
+        mkdir -p "${INSTALL_DIR}"
+        install -m 0755 "${TMP_BINARY}" "${INSTALL_DIR}/dep-fetch"
+        rm -rf "${TMP_DIR}"
+
+        echo "${INSTALL_DIR}" >> "${GITHUB_PATH}"
+
+    - name: Run dep-fetch sync
+      shell: bash
+      env:
+        CONFIG:     ${{ inputs.config }}
+        DEP_FETCH_BIN_DIR:    ${{ inputs.bin-dir }}
+        DEP_FETCH_SKIP_CACHE: ${{ inputs.skip-cache }}
+      run: |
+        ARGS=()
+
+        if [[ -n "${CONFIG}" ]]; then
+          ARGS+=(--config "${CONFIG}")
+        fi
+
+        dep-fetch sync "${ARGS[@]}"
+
+    - name: Add bin-dir to PATH
+      shell: bash
+      env:
+        BIN_DIR: ${{ inputs.bin-dir }}
+      run: |
+        ABS_BIN_DIR="$(realpath "${BIN_DIR}")"
+        echo "${ABS_BIN_DIR}" >> "${GITHUB_PATH}"
