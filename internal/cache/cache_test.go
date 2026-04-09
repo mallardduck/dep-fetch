@@ -54,8 +54,12 @@ func TestLatestVersion_Expired(t *testing.T) {
 		t.Fatal(err)
 	}
 	oldTS := time.Now().Add(-25 * time.Hour).Unix()
-	fmt.Fprintf(f, "%d\nv1.0.0\n", oldTS)
-	f.Close()
+	if _, err := fmt.Fprintf(f, "%d\nv1.0.0\n", oldTS); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
 
 	version, hit, err := LatestVersion(fs, "owner", "repo")
 	if err != nil {
@@ -79,8 +83,12 @@ func TestLatestVersion_Malformed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fmt.Fprint(f, "not-a-timestamp")
-	f.Close()
+	if _, err := fmt.Fprint(f, "not-a-timestamp"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
 
 	version, hit, err := LatestVersion(fs, "owner", "repo")
 	if err != nil {

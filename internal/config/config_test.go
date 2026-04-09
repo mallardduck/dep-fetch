@@ -95,8 +95,12 @@ tools:
 		if err != nil {
 			t.Fatal(err)
 		}
-		fmt.Fprint(f, validYAML)
-		f.Close()
+		if _, err := fmt.Fprint(f, validYAML); err != nil {
+			t.Fatal(err)
+		}
+		if err := f.Close(); err != nil {
+			t.Fatal(err)
+		}
 
 		cfg, binDir, err := Load(fs, "", "")
 		if err != nil {
@@ -116,15 +120,19 @@ tools:
 	t.Run("respects bin_dir from config", func(t *testing.T) {
 		fs := memfs.New()
 		f, _ := fs.Create(DefaultConfigFile)
-		fmt.Fprint(f, `
+		if _, err := fmt.Fprint(f, `
 bin_dir: ./tools
 tools:
   - name: mytool
     version: v1.0.0
     source: rancher/charts-build-scripts
     mode: release-checksums
-`)
-		f.Close()
+`); err != nil {
+			t.Fatal(err)
+		}
+		if err := f.Close(); err != nil {
+			t.Fatal(err)
+		}
 
 		_, binDir, err := Load(fs, "", "")
 		if err != nil {
@@ -138,15 +146,19 @@ tools:
 	t.Run("flag binDir overrides config", func(t *testing.T) {
 		fs := memfs.New()
 		f, _ := fs.Create(DefaultConfigFile)
-		fmt.Fprint(f, `
+		if _, err := fmt.Fprint(f, `
 bin_dir: ./tools
 tools:
   - name: mytool
     version: v1.0.0
     source: rancher/charts-build-scripts
     mode: release-checksums
-`)
-		f.Close()
+`); err != nil {
+			t.Fatal(err)
+		}
+		if err := f.Close(); err != nil {
+			t.Fatal(err)
+		}
 
 		_, binDir, err := Load(fs, "", "./override")
 		if err != nil {
@@ -160,8 +172,12 @@ tools:
 	t.Run("custom config path", func(t *testing.T) {
 		fs := memfs.New()
 		f, _ := fs.Create("custom.yaml")
-		fmt.Fprint(f, validYAML)
-		f.Close()
+		if _, err := fmt.Fprint(f, validYAML); err != nil {
+			t.Fatal(err)
+		}
+		if err := f.Close(); err != nil {
+			t.Fatal(err)
+		}
 
 		cfg, _, err := Load(fs, "custom.yaml", "")
 		if err != nil {
@@ -183,8 +199,12 @@ tools:
 	t.Run("returns error for invalid YAML", func(t *testing.T) {
 		fs := memfs.New()
 		f, _ := fs.Create(DefaultConfigFile)
-		fmt.Fprint(f, "key: {unclosed")
-		f.Close()
+		if _, err := fmt.Fprint(f, "key: {unclosed"); err != nil {
+			t.Fatal(err)
+		}
+		if err := f.Close(); err != nil {
+			t.Fatal(err)
+		}
 
 		_, _, err := Load(fs, "", "")
 		if err == nil {
@@ -195,15 +215,19 @@ tools:
 	t.Run("returns error for invalid config", func(t *testing.T) {
 		fs := memfs.New()
 		f, _ := fs.Create(DefaultConfigFile)
-		fmt.Fprint(f, `tools:
+		if _, err := fmt.Fprint(f, `tools:
   - name: ""
     version: v1.0.0
     source: a/b
     mode: pinned
     checksums:
       linux/amd64: abc
-`)
-		f.Close()
+`); err != nil {
+			t.Fatal(err)
+		}
+		if err := f.Close(); err != nil {
+			t.Fatal(err)
+		}
 
 		_, _, err := Load(fs, "", "")
 		if err == nil {

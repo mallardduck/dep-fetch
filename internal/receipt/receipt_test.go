@@ -26,8 +26,12 @@ func TestRead_Malformed(t *testing.T) {
 		t.Fatal(err)
 	}
 	f, _ := fs.Create(stateDir + "/mytool.receipt")
-	fmt.Fprint(f, "only-one-line")
-	f.Close()
+	if _, err := fmt.Fprint(f, "only-one-line"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
 
 	r, err := Read(fs, "mytool")
 	if err != nil {
@@ -114,8 +118,12 @@ func TestVerify_OK(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.Write(binContent)
-	f.Close()
+	if _, err := f.Write(binContent); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
 
 	// Compute correct checksum.
 	h := sha256.New()
@@ -144,8 +152,12 @@ func TestVerify_Tampered(t *testing.T) {
 		t.Fatal(err)
 	}
 	f, _ := fs.Create(binDir + "/mytool")
-	f.Write([]byte("original content"))
-	f.Close()
+	if _, err := f.Write([]byte("original content")); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
 
 	// Write receipt with wrong checksum (simulates tampering).
 	if err := Write(fs, "mytool", "v1.0.0", "wrongchecksum"); err != nil {

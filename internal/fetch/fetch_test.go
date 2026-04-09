@@ -59,19 +59,6 @@ func hashBytes(data []byte) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// writeValidBinary creates a binary in binDir and a matching receipt.
-func writeValidBinary(t *testing.T, fs interface {
-	MkdirAll(string, os.FileMode) error
-	Create(string) (interface {
-		Write([]byte) (int, error)
-		Close() error
-	}, error)
-}, binDir, name, version string) string {
-	t.Helper()
-	// Use memfs directly below — this helper is inlined in each test for clarity.
-	return ""
-}
-
 // --- selectTools ---
 
 func TestSelectTools_NoFilter(t *testing.T) {
@@ -395,10 +382,19 @@ func TestSyncTool_AlreadyUpToDate(t *testing.T) {
 	binDir := "./bin"
 	binContent := []byte("binary")
 
-	fs.MkdirAll(binDir, 0755)
-	f, _ := fs.Create(binDir + "/tool")
-	f.Write(binContent)
-	f.Close()
+	if err := fs.MkdirAll(binDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	f, err := fs.Create(binDir + "/tool")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Write(binContent); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
 	if err := receipt.Write(fs, "tool", "v1.0.0", hashBytes(binContent)); err != nil {
 		t.Fatal(err)
 	}
@@ -427,10 +423,19 @@ func TestSync_AlreadyUpToDate(t *testing.T) {
 	binDir := "./bin"
 	binContent := []byte("binary")
 
-	fs.MkdirAll(binDir, 0755)
-	f, _ := fs.Create(binDir + "/tool")
-	f.Write(binContent)
-	f.Close()
+	if err := fs.MkdirAll(binDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	f, err := fs.Create(binDir + "/tool")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Write(binContent); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
 	if err := receipt.Write(fs, "tool", "v1.0.0", hashBytes(binContent)); err != nil {
 		t.Fatal(err)
 	}
@@ -473,10 +478,19 @@ func TestVerify_AllValid(t *testing.T) {
 	binDir := "./bin"
 	binContent := []byte("binary")
 
-	fs.MkdirAll(binDir, 0755)
-	f, _ := fs.Create(binDir + "/tool")
-	f.Write(binContent)
-	f.Close()
+	if err := fs.MkdirAll(binDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	f, err := fs.Create(binDir + "/tool")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Write(binContent); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
 	if err := receipt.Write(fs, "tool", "v1.0.0", hashBytes(binContent)); err != nil {
 		t.Fatal(err)
 	}
@@ -574,8 +588,12 @@ func TestExtractFromTarGz_InvalidGzip(t *testing.T) {
 func TestExtractFromTarGz_InvalidTar(t *testing.T) {
 	var buf bytes.Buffer
 	gz := gzip.NewWriter(&buf)
-	gz.Write([]byte("this is not a tar archive"))
-	gz.Close()
+	if _, err := gz.Write([]byte("this is not a tar archive")); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
 
 	if _, err := extractFromTarGz(buf.Bytes(), "file"); err == nil {
 		t.Error("extractFromTarGz() expected error for invalid tar content")
@@ -609,8 +627,12 @@ func TestExtractBinary_GzipDecompress(t *testing.T) {
 	original := []byte("binary data")
 	var buf bytes.Buffer
 	gz := gzip.NewWriter(&buf)
-	gz.Write(original)
-	gz.Close()
+	if _, err := gz.Write(original); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
 
 	got, err := extractBinary(buf.Bytes(), "mytool.gz", "")
 	if err != nil {
@@ -702,8 +724,12 @@ func makeTarGz(t *testing.T, path string, content []byte) []byte {
 	if _, err := tw.Write(content); err != nil {
 		t.Fatal(err)
 	}
-	tw.Close()
-	gz.Close()
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
 	return buf.Bytes()
 }
 
@@ -718,6 +744,8 @@ func makeZip(t *testing.T, path string, content []byte) []byte {
 	if _, err := f.Write(content); err != nil {
 		t.Fatal(err)
 	}
-	zw.Close()
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
 	return buf.Bytes()
 }

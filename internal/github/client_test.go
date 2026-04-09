@@ -24,7 +24,9 @@ func TestLatestRelease_OK(t *testing.T) {
 			http.NotFound(w, r)
 			return
 		}
-		json.NewEncoder(w).Encode(release{TagName: "v1.2.3"})
+		if err := json.NewEncoder(w).Encode(release{TagName: "v1.2.3"}); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 	}))
 	defer ts.Close()
 	withTestServer(t, ts)
@@ -40,7 +42,9 @@ func TestLatestRelease_OK(t *testing.T) {
 
 func TestLatestRelease_EmptyTag(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(release{TagName: ""})
+		if err := json.NewEncoder(w).Encode(release{TagName: ""}); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 	}))
 	defer ts.Close()
 	withTestServer(t, ts)
@@ -66,7 +70,9 @@ func TestLatestRelease_HTTP404(t *testing.T) {
 
 func TestLatestRelease_InvalidJSON(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, "not json{")
+		if _, err := fmt.Fprint(w, "not json{"); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 	}))
 	defer ts.Close()
 	withTestServer(t, ts)
@@ -80,7 +86,9 @@ func TestLatestRelease_InvalidJSON(t *testing.T) {
 func TestDownloadAsset_OK(t *testing.T) {
 	content := []byte("binary asset data")
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write(content)
+		if _, err := w.Write(content); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 	}))
 	defer ts.Close()
 
@@ -108,7 +116,9 @@ func TestDownloadAsset_HTTP500(t *testing.T) {
 
 func TestDownloadAsset_CopyError(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("data"))
+		if _, err := w.Write([]byte("data")); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 	}))
 	defer ts.Close()
 
@@ -128,7 +138,9 @@ func TestGitHubTokenHeader(t *testing.T) {
 	var gotAuth string
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAuth = r.Header.Get("Authorization")
-		json.NewEncoder(w).Encode(release{TagName: "v1.0.0"})
+		if err := json.NewEncoder(w).Encode(release{TagName: "v1.0.0"}); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 	}))
 	defer ts.Close()
 	withTestServer(t, ts)
