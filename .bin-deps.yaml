@@ -1,4 +1,18 @@
 tools:
+  - name: goreleaser
+    mode: pinned
+    source: goreleaser/goreleaser
+    # renovate: datasource=github-releases depName=goreleaser/goreleaser
+    version: v2.15.2
+    checksums:
+      linux/amd64:  "0ebdbf0353aba566b969dde746cc4e4806f96c27aa2f3971b229a9df7611fedc"  # renovate-local: goreleaser=v2.15.2
+      linux/arm64:  "5db66761a98f6693161e49e1a95d28d2673a892ba60cb4a5e16736cafd41c4c9"  # renovate-local: goreleaser=v2.15.2
+      darwin/amd64: "5a0504a3be175fad742a5d00f77afb6281e4aa1edd3575005d6128a0f3445b92"  # renovate-local: goreleaser=v2.15.2
+      darwin/arm64: "985c8509c62ccf2f48371868aa478a13ba075ff54457fdbcd2c0ba54eda8ad69"  # renovate-local: goreleaser=v2.15.2
+    release:
+      binary_template: "goreleaser_{os|title}_{arch_alt}.tar.gz"
+      extract: "goreleaser"
+
   - name: golangci-lint
     mode: pinned
     source: golangci/golangci-lint
@@ -10,5 +24,5 @@ tools:
       darwin/amd64: "c900d4048db75d1edfd550fd11cf6a9b3008e7caa8e119fcddbc700412d63e60"  # renovate-local: golangci-lint=v2.11.4
       darwin/arm64: "02db2a2dae8b26812e53b0688a6f617e3ef1f489790e829ea22862cf76945675"  # renovate-local: golangci-lint=v2.11.4
     release:
-      binary_template: "golangci-lint-{version_no_v}-{os}-{arch}.tar.gz"
-      extract: "golangci-lint-{version_no_v}-{os}-{arch}/golangci-lint"
+      binary_template: "golangci-lint-{version|trimprefix:v}-{os}-{arch}.tar.gz"
+      extract: "golangci-lint-{version|trimprefix:v}-{os}-{arch}/golangci-lint"
