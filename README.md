@@ -82,14 +82,14 @@ tools:
       linux/amd64:  "abc123..."
       darwin/amd64: "def456..."
     release:
-      download_template: "mytool_{version}_{os}_{arch}.{ext|default:tar.gz}"
+      download_template: "mytool_{version}_{os}_{arch}.{ext}"
       extract: "mytool"
       extensions:
-        linux: "tar.gz"
+        default: "tar.gz"
         darwin: "zip"
 ```
 
-`{ext}` resolves to the value for the current OS. The `default:` modifier supplies a fallback for any OS not listed in `extensions`.
+`{ext}` resolves to the value for the current OS. The `default` key in `extensions` supplies a fallback for any OS not explicitly listed.
 
 ### Template variables
 
@@ -113,7 +113,6 @@ Modifiers can be applied and chained with additional `|` separators (applied lef
 | `trimprefix:X` | Remove leading string X | `{version\|trimprefix:v}` → `2.11.4` |
 | `trimsuffix:X` | Remove trailing string X | `{name\|trimsuffix:-tool}` → `charts-build-scripts` |
 | `replace:FROM=TO` | Replace exact value | `{arch\|replace:amd64=x86_64}` → `x86_64` |
-| `default:X` | Use X if the value is empty | `{ext\|default:tar.gz}` → `tar.gz` |
 
 Chain example: `{version\|trimprefix:v\|trimsuffix:.0}` strips the `v` prefix then the `.0` patch suffix (e.g. `v1.2.0` → `1.2`).
 

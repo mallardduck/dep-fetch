@@ -145,24 +145,6 @@ func TestRender(t *testing.T) {
 			want:    "gh_v2.0.0_windows_amd64.zip",
 		},
 		{
-			name:    "default modifier uses fallback when ext is empty",
-			pattern: "{name}.{ext|default:zip}",
-			vars:    Vars{Name: "gh", Ext: ""},
-			want:    "gh.zip",
-		},
-		{
-			name:    "default modifier does not override a set value",
-			pattern: "{name}.{ext|default:zip}",
-			vars:    Vars{Name: "gh", Ext: "tar.gz"},
-			want:    "gh.tar.gz",
-		},
-		{
-			name:    "default modifier on non-ext variable",
-			pattern: "{os|default:linux}",
-			vars:    Vars{OS: ""},
-			want:    "linux",
-		},
-		{
 			name:    "unknown variable left as-is",
 			pattern: "{unknown_var}",
 			vars:    defaultVars,

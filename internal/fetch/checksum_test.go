@@ -1,10 +1,15 @@
 package fetch
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"io"
+	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/mallardduck/dep-fetch/internal/config"
 )
 
 func TestVerifyReader_Match(t *testing.T) {
@@ -129,5 +134,138 @@ func TestParseChecksumFile_SkipsShortLines(t *testing.T) {
 	}
 	if checksum != "full-hash" {
 		t.Errorf("parseChecksumFile() = %q, want %q", checksum, "full-hash")
+	}
+}
+
+// --- FetchChecksums ---
+
+func makeTool(platforms []string) *config.Tool {
+	checksums := make(map[string]string, len(platforms))
+	for _, p := range platforms {
+		checksums[p] = ""
+	}
+	return &config.Tool{
+		Name:      "mytool",
+		Source:    "owner/repo",
+		Checksums: checksums,
+	}
+}
+
+func TestFetchChecksums_FromChecksumFile(t *testing.T) {
+	tool := makeTool([]string{"linux/amd64"})
+	// Default template renders to "mytool_linux_amd64"; checksum file lists it.
+	checksumFile := []byte("abc123  mytool_linux_amd64\n")
+
+	mockHTTPDispatch(t, func(req *http.Request) *http.Response {
+		var body []byte
+		if strings.Contains(req.URL.Path, "checksums.txt") {
+			body = checksumFile
+		} else {
+			body = []byte("should not be fetched")
+		}
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(body)), Header: make(http.Header)}
+	})
+
+	got, err := FetchChecksums(tool, "v1.0.0")
+	if err != nil {
+		t.Fatalf("FetchChecksums() unexpected error: %v", err)
+	}
+	if got["linux/amd64"] != "abc123" {
+		t.Errorf("FetchChecksums() linux/amd64 = %q, want %q", got["linux/amd64"], "abc123")
+	}
+}
+
+func TestFetchChecksums_MultiplePlatforms_FromChecksumFile(t *testing.T) {
+	tool := makeTool([]string{"linux/amd64", "darwin/arm64"})
+	checksumFile := []byte("aaa111  mytool_linux_amd64\nbbb222  mytool_darwin_arm64\n")
+
+	mockHTTPDispatch(t, func(req *http.Request) *http.Response {
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(checksumFile)), Header: make(http.Header)}
+	})
+
+	got, err := FetchChecksums(tool, "v1.0.0")
+	if err != nil {
+		t.Fatalf("FetchChecksums() unexpected error: %v", err)
+	}
+	if got["linux/amd64"] != "aaa111" {
+		t.Errorf("linux/amd64 = %q, want %q", got["linux/amd64"], "aaa111")
+	}
+	if got["darwin/arm64"] != "bbb222" {
+		t.Errorf("darwin/arm64 = %q, want %q", got["darwin/arm64"], "bbb222")
+	}
+}
+
+func TestFetchChecksums_ChecksumFileMissingEntry_FallsBackToIndividual(t *testing.T) {
+	tool := makeTool([]string{"linux/amd64"})
+	// Checksum file does not contain our asset — triggers fallback.
+	checksumFile := []byte("abc123  unrelated_tool\n")
+	assetContent := []byte("binary data")
+	assetChecksum := sha256Hex(assetContent)
+
+	mockHTTPDispatch(t, func(req *http.Request) *http.Response {
+		var body []byte
+		if strings.Contains(req.URL.Path, "checksums.txt") {
+			body = checksumFile
+		} else {
+			body = assetContent
+		}
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(body)), Header: make(http.Header)}
+	})
+
+	got, err := FetchChecksums(tool, "v1.0.0")
+	if err != nil {
+		t.Fatalf("FetchChecksums() unexpected error: %v", err)
+	}
+	if got["linux/amd64"] != assetChecksum {
+		t.Errorf("FetchChecksums() linux/amd64 = %q, want %q", got["linux/amd64"], assetChecksum)
+	}
+}
+
+func TestFetchChecksums_ChecksumFileDownloadFails_FallsBackToIndividual(t *testing.T) {
+	tool := makeTool([]string{"linux/amd64"})
+	assetContent := []byte("binary data")
+	assetChecksum := sha256Hex(assetContent)
+
+	mockHTTPDispatch(t, func(req *http.Request) *http.Response {
+		if strings.Contains(req.URL.Path, "checksums.txt") {
+			return &http.Response{StatusCode: 404, Body: io.NopCloser(bytes.NewReader(nil)), Header: make(http.Header)}
+		}
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(assetContent)), Header: make(http.Header)}
+	})
+
+	got, err := FetchChecksums(tool, "v1.0.0")
+	if err != nil {
+		t.Fatalf("FetchChecksums() unexpected error: %v", err)
+	}
+	if got["linux/amd64"] != assetChecksum {
+		t.Errorf("FetchChecksums() linux/amd64 = %q, want %q", got["linux/amd64"], assetChecksum)
+	}
+}
+
+func TestFetchChecksums_IndividualDownloadFails(t *testing.T) {
+	tool := makeTool([]string{"linux/amd64"})
+	mockHTTP(t, 500, []byte("error"))
+
+	_, err := FetchChecksums(tool, "v1.0.0")
+	if err == nil {
+		t.Error("FetchChecksums() expected error when all downloads fail, got nil")
+	}
+}
+
+func TestFetchChecksums_InvalidPlatformFormat(t *testing.T) {
+	tool := &config.Tool{
+		Name:      "mytool",
+		Source:    "owner/repo",
+		Checksums: map[string]string{"invalid": "abc"},
+	}
+	// Checksum file download will succeed but then platform parsing fails.
+	mockHTTP(t, 200, []byte("abc123  mytool__\n"))
+
+	_, err := FetchChecksums(tool, "v1.0.0")
+	if err == nil {
+		t.Error("FetchChecksums() expected error for invalid platform format, got nil")
+	}
+	if !strings.Contains(err.Error(), "invalid platform format") {
+		t.Errorf("FetchChecksums() error = %q, want 'invalid platform format'", err.Error())
 	}
 }
