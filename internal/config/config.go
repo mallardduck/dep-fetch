@@ -90,11 +90,14 @@ func (t *Tool) ExtractPath() string {
 	return ""
 }
 
-// Ext returns the configured file extension for the given OS, or empty string if not set.
-// Use the {ext|default:zip} modifier in templates to supply a fallback.
+// Ext returns the configured file extension for the given OS.
+// Falls back to the "default" key in extensions if the OS is not explicitly listed.
 func (t *Tool) Ext(goos string) string {
 	if t.Release != nil {
-		return t.Release.Extensions[goos]
+		if ext, ok := t.Release.Extensions[goos]; ok {
+			return ext
+		}
+		return t.Release.Extensions["default"]
 	}
 	return ""
 }

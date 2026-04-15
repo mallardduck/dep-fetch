@@ -103,6 +103,22 @@ func TestToolExt(t *testing.T) {
 		}
 	}
 
+	t.Run("default key used as fallback", func(t *testing.T) {
+		tool := Tool{Release: &ReleaseConfig{Extensions: map[string]string{
+			"default": "tar.gz",
+			"windows": "zip",
+		}}}
+		if got := tool.Ext("linux"); got != "tar.gz" {
+			t.Errorf("Ext(linux) with default = %q, want %q", got, "tar.gz")
+		}
+		if got := tool.Ext("darwin"); got != "tar.gz" {
+			t.Errorf("Ext(darwin) with default = %q, want %q", got, "tar.gz")
+		}
+		if got := tool.Ext("windows"); got != "zip" {
+			t.Errorf("Ext(windows) with default = %q, want %q", got, "zip")
+		}
+	})
+
 	t.Run("nil release returns empty", func(t *testing.T) {
 		empty := Tool{}
 		if got := empty.Ext("linux"); got != "" {

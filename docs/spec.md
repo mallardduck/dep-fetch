@@ -80,10 +80,10 @@ tools:
       darwin/amd64: "def456...64char-hex..."
       darwin/arm64: "789abc...64char-hex..."
     release:
-      download_template: "mytool_{version}_{os}_{arch}.{ext|default:tar.gz}"
+      download_template: "mytool_{version}_{os}_{arch}.{ext}"
       extract: "mytool"
       extensions:
-        linux: "tar.gz"
+        default: "tar.gz"
         darwin: "zip"
 ```
 
@@ -98,7 +98,7 @@ tools:
 | `release.download_template` | no | `{name}_{os}_{arch}` | Release asset filename to download (include extension, e.g. `.tar.gz`) |
 | `release.checksum_template` | no | `checksums.txt` | Checksum file asset name. Used at runtime by `release-checksums` mode to verify downloads, and by `dep-fetch update` to fetch new checksums when updating a `pinned` mode tool. |
 | `release.extract` | no | — | Path within archive to use as the binary. Required when `download_template` is an archive. Omit for direct binary assets. |
-| `release.extensions` | no | — | Map of OS name to file extension string (e.g. `linux: tar.gz`). Populates the `{ext}` template variable. |
+| `release.extensions` | no | — | Map of OS name to file extension string (e.g. `linux: tar.gz`). The special key `default` is used as a fallback for any OS not explicitly listed. Populates the `{ext}` template variable. |
 | `checksums` | required for `pinned` | — | Map of `{os}/{arch}` to SHA-256 hex digest of the **downloaded asset** (archive or binary) |
 
 ### Template Variables
@@ -123,7 +123,6 @@ Modifiers transform a variable's value. Apply with `|` after the variable name; 
 | `trimprefix:X` | Remove leading string X | `{version\|trimprefix:v}` → `0.18.0` |
 | `trimsuffix:X` | Remove trailing string X | `{name\|trimsuffix:-tool}` → `charts-build-scripts` |
 | `replace:FROM=TO` | Replace exact value | `{arch\|replace:amd64=x86_64}` → `x86_64` |
-| `default:X` | Use X if the value is empty | `{ext\|default:tar.gz}` → `tar.gz` |
 
 Chain example: `{version|trimprefix:v|trimsuffix:.0}` strips the `v` prefix then the `.0` patch suffix (e.g. `v1.2.0` → `1.2`).
 

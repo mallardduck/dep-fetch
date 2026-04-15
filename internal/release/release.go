@@ -73,10 +73,6 @@ func Render(pattern string, v Vars) string {
 				if ok && val == from {
 					val = to
 				}
-			case "default":
-				if val == "" {
-					val = arg
-				}
 			}
 		}
 		return val
