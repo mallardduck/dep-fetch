@@ -37,10 +37,22 @@ func TestRender(t *testing.T) {
 			want:    "amd64",
 		},
 		{
+			name:    "replace modifier single",
+			pattern: "{os|replace:darwin=macOS}",
+			vars:    Vars{OS: "darwin"},
+			want:    "macOS",
+		},
+		{
 			name:    "replace modifier chained for multiple mappings",
 			pattern: "{os|replace:darwin=macOS|replace:linux=Linux}",
 			vars:    Vars{OS: "darwin"},
 			want:    "macOS",
+		},
+		{
+			name:    "replace modifier chained for multiple mappings - linux input",
+			pattern: "{os|replace:darwin=macOS|replace:linux=Linux}",
+			vars:    Vars{OS: "linux"},
+			want:    "Linux",
 		},
 		{
 			name:    "replace modifier goreleaser arch pattern",
