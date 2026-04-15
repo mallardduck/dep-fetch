@@ -13,6 +13,7 @@ dep-fetch sync               # fetch/verify all tools in config
 dep-fetch sync <name>        # fetch/verify a single tool by name
 dep-fetch list               # show current state of all declared tools
 dep-fetch verify             # verify checksums of already-downloaded binaries without re-fetching
+dep-fetch update <name> <version>  # update tool version and checksums in config
 ```
 
 `dep-fetch verify` checks the SHA-256 of each binary against the checksum recorded in its receipt at install time. Using the receipt checksum (rather than the originally declared or release-provided checksum) is intentionally more defensive: for archive assets the receipt stores the extracted binary's checksum, which differs from the asset checksum. This means `verify` catches corruption or replacement of the extracted binary even when the original asset checksum is no longer available. If a binary is missing entirely, it is downloaded and verified (i.e. `verify` falls back to sync semantics for absent tools). If a download fails, the command exits non-zero.
