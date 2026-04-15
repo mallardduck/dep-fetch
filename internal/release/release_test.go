@@ -127,6 +127,42 @@ func TestRender(t *testing.T) {
 			want:    "Darwin",
 		},
 		{
+			name:    "ext variable linux tar.gz",
+			pattern: "{name}_{version}_{os}_{arch}.{ext}",
+			vars:    Vars{Name: "gh", OS: "linux", Arch: "amd64", Version: "v2.0.0", Ext: "tar.gz"},
+			want:    "gh_v2.0.0_linux_amd64.tar.gz",
+		},
+		{
+			name:    "ext variable darwin zip",
+			pattern: "{name}_{version}_{os}_{arch}.{ext}",
+			vars:    Vars{Name: "gh", OS: "darwin", Arch: "arm64", Version: "v2.0.0", Ext: "zip"},
+			want:    "gh_v2.0.0_darwin_arm64.zip",
+		},
+		{
+			name:    "ext variable windows zip",
+			pattern: "{name}_{version}_{os}_{arch}.{ext}",
+			vars:    Vars{Name: "gh", OS: "windows", Arch: "amd64", Version: "v2.0.0", Ext: "zip"},
+			want:    "gh_v2.0.0_windows_amd64.zip",
+		},
+		{
+			name:    "default modifier uses fallback when ext is empty",
+			pattern: "{name}.{ext|default:zip}",
+			vars:    Vars{Name: "gh", Ext: ""},
+			want:    "gh.zip",
+		},
+		{
+			name:    "default modifier does not override a set value",
+			pattern: "{name}.{ext|default:zip}",
+			vars:    Vars{Name: "gh", Ext: "tar.gz"},
+			want:    "gh.tar.gz",
+		},
+		{
+			name:    "default modifier on non-ext variable",
+			pattern: "{os|default:linux}",
+			vars:    Vars{OS: ""},
+			want:    "linux",
+		},
+		{
 			name:    "unknown variable left as-is",
 			pattern: "{unknown_var}",
 			vars:    defaultVars,

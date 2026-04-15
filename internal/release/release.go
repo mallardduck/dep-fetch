@@ -13,6 +13,7 @@ type Vars struct {
 	OS      string
 	Arch    string
 	Version string // e.g. v0.18.0
+	Ext     string // file extension for the platform, e.g. "tar.gz" or "zip"
 }
 
 // tokenRe matches {variable} and {variable|modifier1,modifier2,...} template tokens.
@@ -41,6 +42,7 @@ func Render(pattern string, v Vars) string {
 		"os":      v.OS,
 		"arch":    v.Arch,
 		"version": v.Version,
+		"ext":     v.Ext,
 	}
 	return tokenRe.ReplaceAllStringFunc(pattern, func(token string) string {
 		m := tokenRe.FindStringSubmatch(token)
@@ -70,6 +72,10 @@ func Render(pattern string, v Vars) string {
 				from, to, ok := strings.Cut(arg, "=")
 				if ok && val == from {
 					val = to
+				}
+			case "default":
+				if val == "" {
+					val = arg
 				}
 			}
 		}

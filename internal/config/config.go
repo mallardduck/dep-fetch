@@ -37,9 +37,10 @@ type Tool struct {
 }
 
 type ReleaseConfig struct {
-	BinaryTemplate   string `yaml:"binary_template,omitempty"`
-	ChecksumTemplate string `yaml:"checksum_template,omitempty"`
-	Extract          string `yaml:"extract,omitempty"` // path within archive to use as the binary; empty = asset is the binary
+	BinaryTemplate   string            `yaml:"binary_template,omitempty"`
+	ChecksumTemplate string            `yaml:"checksum_template,omitempty"`
+	Extract          string            `yaml:"extract,omitempty"`              // path within archive to use as the binary; empty = asset is the binary
+	Extensions       map[string]string `yaml:"extensions,omitempty"`           // per-OS file extension, e.g. linux: tar.gz, darwin: zip
 }
 
 func (t *Tool) Owner() string {
@@ -71,6 +72,15 @@ func (t *Tool) ChecksumTemplate() string {
 func (t *Tool) ExtractPath() string {
 	if t.Release != nil {
 		return t.Release.Extract
+	}
+	return ""
+}
+
+// Ext returns the configured file extension for the given OS, or empty string if not set.
+// Use the {ext|default:zip} modifier in templates to supply a fallback.
+func (t *Tool) Ext(goos string) string {
+	if t.Release != nil {
+		return t.Release.Extensions[goos]
 	}
 	return ""
 }

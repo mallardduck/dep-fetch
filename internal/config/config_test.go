@@ -80,6 +80,37 @@ func TestToolExtractPath(t *testing.T) {
 	})
 }
 
+func TestToolExt(t *testing.T) {
+	extensions := map[string]string{
+		"linux":   "tar.gz",
+		"darwin":  "zip",
+		"windows": "zip",
+	}
+	tool := Tool{Release: &ReleaseConfig{Extensions: extensions}}
+
+	tests := []struct {
+		goos string
+		want string
+	}{
+		{"linux", "tar.gz"},
+		{"darwin", "zip"},
+		{"windows", "zip"},
+		{"freebsd", ""},
+	}
+	for _, tt := range tests {
+		if got := tool.Ext(tt.goos); got != tt.want {
+			t.Errorf("Ext(%q) = %q, want %q", tt.goos, got, tt.want)
+		}
+	}
+
+	t.Run("nil release returns empty", func(t *testing.T) {
+		empty := Tool{}
+		if got := empty.Ext("linux"); got != "" {
+			t.Errorf("Ext(linux) on nil release = %q, want empty", got)
+		}
+	})
+}
+
 func TestLoad(t *testing.T) {
 	validYAML := `
 tools:
