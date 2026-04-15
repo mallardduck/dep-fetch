@@ -95,7 +95,7 @@ func splitSource(source string) (owner, repo string) {
 
 // Load reads and validates the config. configPath and binDir may be empty (uses defaults/env).
 func Load(fs billy.Filesystem, configPath, binDir string) (*Config, string, error) {
-	path := resolveConfigPath(configPath)
+	path := ResolveConfigPath(configPath)
 
 	f, err := fs.Open(path)
 	if err != nil {
@@ -122,7 +122,7 @@ func Load(fs billy.Filesystem, configPath, binDir string) (*Config, string, erro
 	return &cfg, resolved, nil
 }
 
-func resolveConfigPath(flagValue string) string {
+func ResolveConfigPath(flagValue string) string {
 	if flagValue != "" {
 		return flagValue
 	}

@@ -23,16 +23,16 @@ func verifyReader(r io.Reader, expected string) ([]byte, error) {
 	return data, nil
 }
 
-// sha256Hex returns the hex-encoded SHA-256 digest of data.
-func sha256Hex(data []byte) string {
+// Sha256Hex returns the hex-encoded SHA-256 digest of data.
+func Sha256Hex(data []byte) string {
 	h := sha256.New()
 	h.Write(data)
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// parseChecksumFile finds the SHA-256 for assetName in a checksums.txt-style file.
+// ParseChecksumFile finds the SHA-256 for assetName in a checksums.txt-style file.
 // Each line is expected to be: "<hex>  <filename>" (two spaces, GNU coreutils sha256sum format).
-func parseChecksumFile(data []byte, assetName string) (string, error) {
+func ParseChecksumFile(data []byte, assetName string) (string, error) {
 	scanner := bufio.NewScanner(strings.NewReader(string(data)))
 	for scanner.Scan() {
 		line := scanner.Text()
