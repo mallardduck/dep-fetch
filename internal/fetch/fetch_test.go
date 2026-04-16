@@ -283,7 +283,7 @@ func TestSyncPinned_NoPlatformChecksum(t *testing.T) {
 		Source:    "a/b",
 		Checksums: map[string]string{"fakeos/fakearch": "abc"},
 	}
-	_, err := syncPinned(fs, "./bin", tool, "v1.0.0", goos, goarch, "tool", "")
+	_, _, err := syncPinned(fs, "./bin", tool, "v1.0.0", goos, goarch, "tool", "")
 	if err == nil {
 		t.Error("syncPinned() expected error for missing platform checksum")
 	}
@@ -299,19 +299,74 @@ func TestSyncPinned_OK(t *testing.T) {
 	goos, goarch := platform.Current()
 	binContent := []byte("pinned binary")
 	checksum := hashBytes(binContent)
-	mockHTTP(t, 200, binContent)
+	checksumFileContent := []byte("some checksum file content")
+
+	// First request → checksum file, second → binary asset.
+	callCount := 0
+	mockHTTPDispatch(t, func(req *http.Request) *http.Response {
+		callCount++
+		var body []byte
+		if strings.Contains(req.URL.String(), "checksums") {
+			body = checksumFileContent
+		} else {
+			body = binContent
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Body:       io.NopCloser(bytes.NewReader(body)),
+			Header:     make(http.Header),
+		}
+	})
 
 	tool := config.Tool{
 		Name:      "tool",
 		Source:    "owner/repo",
 		Checksums: map[string]string{goos + "/" + goarch: checksum},
 	}
-	gotChecksum, err := syncPinned(fs, tmpDir, tool, "v1.0.0", goos, goarch, "tool", "")
+	gotChecksum, gotFileHash, err := syncPinned(fs, tmpDir, tool, "v1.0.0", goos, goarch, "tool", "")
 	if err != nil {
 		t.Fatalf("syncPinned() unexpected error: %v", err)
 	}
 	if gotChecksum != checksum {
-		t.Errorf("syncPinned() = %q, want %q", gotChecksum, checksum)
+		t.Errorf("syncPinned() binChecksum = %q, want %q", gotChecksum, checksum)
+	}
+	if gotFileHash != hashBytes(checksumFileContent) {
+		t.Errorf("syncPinned() checksumFileHash = %q, want %q", gotFileHash, hashBytes(checksumFileContent))
+	}
+}
+
+// TestSyncPinned_ChecksumFileUnavailable confirms that a failed checksum-file download is
+// a soft failure: sync still succeeds and checksumFileHash is empty.
+func TestSyncPinned_ChecksumFileUnavailable(t *testing.T) {
+	tmpDir := t.TempDir()
+	fs := osfs.New("/")
+
+	goos, goarch := platform.Current()
+	binContent := []byte("pinned binary")
+	checksum := hashBytes(binContent)
+
+	mockHTTPDispatch(t, func(req *http.Request) *http.Response {
+		// Checksum file 404s; binary download succeeds.
+		if strings.Contains(req.URL.String(), "checksums") {
+			return &http.Response{StatusCode: 404, Body: io.NopCloser(bytes.NewReader(nil)), Header: make(http.Header)}
+		}
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(binContent)), Header: make(http.Header)}
+	})
+
+	tool := config.Tool{
+		Name:      "tool",
+		Source:    "owner/repo",
+		Checksums: map[string]string{goos + "/" + goarch: checksum},
+	}
+	gotChecksum, gotFileHash, err := syncPinned(fs, tmpDir, tool, "v1.0.0", goos, goarch, "tool", "")
+	if err != nil {
+		t.Fatalf("syncPinned() unexpected error: %v", err)
+	}
+	if gotChecksum != checksum {
+		t.Errorf("syncPinned() binChecksum = %q, want %q", gotChecksum, checksum)
+	}
+	if gotFileHash != "" {
+		t.Errorf("syncPinned() checksumFileHash = %q, want empty when checksum file is unavailable", gotFileHash)
 	}
 }
 
@@ -322,7 +377,7 @@ func TestSyncReleaseChecksums_ChecksumDownloadError(t *testing.T) {
 	mockHTTP(t, 500, []byte("error"))
 
 	tool := config.Tool{Name: "tool", Source: "owner/repo"}
-	_, err := syncReleaseChecksums(fs, "./bin", tool, "v1.0.0", "tool", "", "checksums.txt")
+	_, _, err := syncReleaseChecksums(fs, "./bin", tool, "v1.0.0", "tool", "", "checksums.txt")
 	if err == nil {
 		t.Error("syncReleaseChecksums() expected error for HTTP 500 on checksum file")
 	}
@@ -337,7 +392,7 @@ func TestSyncReleaseChecksums_ParseError(t *testing.T) {
 	mockHTTP(t, 200, []byte("abc123  othertool\n"))
 
 	tool := config.Tool{Name: "tool", Source: "owner/repo"}
-	_, err := syncReleaseChecksums(fs, "./bin", tool, "v1.0.0", "tool", "", "checksums.txt")
+	_, _, err := syncReleaseChecksums(fs, "./bin", tool, "v1.0.0", "tool", "", "checksums.txt")
 	if err == nil {
 		t.Error("syncReleaseChecksums() expected error for missing checksum entry")
 	}
@@ -366,12 +421,15 @@ func TestSyncReleaseChecksums_OK(t *testing.T) {
 	})
 
 	tool := config.Tool{Name: "tool", Source: "owner/repo"}
-	gotChecksum, err := syncReleaseChecksums(fs, tmpDir, tool, "v1.0.0", "tool", "", "checksums.txt")
+	gotChecksum, gotFileHash, err := syncReleaseChecksums(fs, tmpDir, tool, "v1.0.0", "tool", "", "checksums.txt")
 	if err != nil {
 		t.Fatalf("syncReleaseChecksums() unexpected error: %v", err)
 	}
 	if gotChecksum != checksum {
-		t.Errorf("syncReleaseChecksums() = %q, want %q", gotChecksum, checksum)
+		t.Errorf("syncReleaseChecksums() binChecksum = %q, want %q", gotChecksum, checksum)
+	}
+	if gotFileHash != hashBytes(checksumFile) {
+		t.Errorf("syncReleaseChecksums() checksumFileHash = %q, want %q", gotFileHash, hashBytes(checksumFile))
 	}
 }
 
@@ -395,7 +453,7 @@ func TestSyncTool_AlreadyUpToDate(t *testing.T) {
 	if err := f.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if err := receipt.Write(fs, "tool", "v1.0.0", hashBytes(binContent)); err != nil {
+	if err := receipt.Write(fs, "tool", "v1.0.0", "", hashBytes(binContent)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -436,7 +494,7 @@ func TestSync_AlreadyUpToDate(t *testing.T) {
 	if err := f.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if err := receipt.Write(fs, "tool", "v1.0.0", hashBytes(binContent)); err != nil {
+	if err := receipt.Write(fs, "tool", "v1.0.0", "", hashBytes(binContent)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -458,6 +516,8 @@ func TestSync_FilterError(t *testing.T) {
 
 func TestSync_NoPlatformChecksum(t *testing.T) {
 	fs := memfs.New()
+	// 404 for the checksum file (soft fail), then error from missing platform checksum.
+	mockHTTP(t, 404, []byte("not found"))
 	cfg := &config.Config{Tools: []config.Tool{{
 		Name: "tool", Version: "v1.0.0", Source: "a/b", Mode: config.ModePinned,
 		Checksums: map[string]string{"fakeos/fakearch": "abc"},
@@ -491,7 +551,8 @@ func TestVerify_AllValid(t *testing.T) {
 	if err := f.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if err := receipt.Write(fs, "tool", "v1.0.0", hashBytes(binContent)); err != nil {
+	// Empty ChecksumFileHash — checksum file re-verification is skipped.
+	if err := receipt.Write(fs, "tool", "v1.0.0", "", hashBytes(binContent)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -503,9 +564,49 @@ func TestVerify_AllValid(t *testing.T) {
 	}
 }
 
+// TestVerify_ChecksumFileChanged confirms that a changed upstream checksum file produces a warning
+// (printed to stdout) but does not cause Verify to return an error.
+func TestVerify_ChecksumFileChanged(t *testing.T) {
+	fs := memfs.New()
+	binDir := "./bin"
+	binContent := []byte("binary")
+
+	if err := fs.MkdirAll(binDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	f, err := fs.Create(binDir + "/tool")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Write(binContent); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Receipt records a checksum file hash that will not match what the mock serves.
+	if err := receipt.Write(fs, "tool", "v1.0.0", "originalfilechecksum", hashBytes(binContent)); err != nil {
+		t.Fatal(err)
+	}
+
+	// Mock serves a different checksum file than what was recorded.
+	mockHTTP(t, 200, []byte("different checksum file content"))
+
+	cfg := &config.Config{Tools: []config.Tool{
+		{Name: "tool", Version: "v1.0.0", Source: "rancher/charts-build-scripts", Mode: config.ModeReleaseChecksums},
+	}}
+	// Verify must succeed (no error returned) — the changed file is a warning only.
+	if err := Verify(fs, cfg, binDir); err != nil {
+		t.Errorf("Verify() unexpected error for changed checksum file (should warn, not fail): %v", err)
+	}
+}
+
 func TestVerify_MissingReceipt_SyncFails(t *testing.T) {
 	fs := memfs.New()
 	// No receipt — Verify will try to sync, which fails (no platform checksum).
+	// The checksum file 404s (soft fail), then platform check fails (hard fail).
+	mockHTTP(t, 404, []byte("not found"))
 	cfg := &config.Config{Tools: []config.Tool{{
 		Name: "tool", Version: "v1.0.0", Source: "a/b", Mode: config.ModePinned,
 		Checksums: map[string]string{"fakeos/fakearch": "abc"},
@@ -539,7 +640,7 @@ func TestList_WithReceipt(t *testing.T) {
 	cfg := &config.Config{Tools: []config.Tool{
 		{Name: "tool1", Version: "v2.0.0", Source: "rancher/charts-build-scripts", Mode: config.ModeReleaseChecksums},
 	}}
-	if err := receipt.Write(fs, "tool1", "v2.0.0", "somechecksum"); err != nil {
+	if err := receipt.Write(fs, "tool1", "v2.0.0", "", "somechecksum"); err != nil {
 		t.Fatal(err)
 	}
 	statuses, err := List(fs, cfg, "./bin")

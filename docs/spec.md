@@ -16,7 +16,13 @@ dep-fetch verify             # verify checksums of already-downloaded binaries w
 dep-fetch update <name> [version]  # update tool version and checksums in config (default version: latest)
 ```
 
-`dep-fetch verify` checks the SHA-256 of each binary against the checksum recorded in its receipt at install time. Using the receipt checksum (rather than the originally declared or release-provided checksum) is intentionally more defensive: for archive assets the receipt stores the extracted binary's checksum, which differs from the asset checksum. This means `verify` catches corruption or replacement of the extracted binary even when the original asset checksum is no longer available. If a binary is missing entirely, it is downloaded and verified (i.e. `verify` falls back to sync semantics for absent tools). If a download fails, the command exits non-zero.
+`dep-fetch verify` performs two layers of checks for each tool:
+
+1. **Binary integrity** — compares the SHA-256 of the binary on disk against the value recorded in its receipt at install time. Using the receipt checksum (rather than the originally declared or release-provided checksum) is intentionally more defensive: for archive assets the receipt stores the extracted binary's checksum, which differs from the asset checksum. This means `verify` catches corruption or replacement of the extracted binary even when the original asset checksum is no longer available.
+
+2. **Checksum file chain** — re-fetches the upstream checksum file (via `release.checksum_template`) and compares its SHA-256 against the value recorded in the receipt at install time. A mismatch means the upstream changed a release asset after it was already consumed — this is printed as a loud warning but does not cause `verify` to exit non-zero. If the receipt has no checksum file hash (e.g. the file was unavailable at install time), this step is skipped for that tool.
+
+If a binary is missing entirely, it is downloaded and verified (i.e. `verify` falls back to sync semantics for absent tools). If a download fails, the command exits non-zero.
 
 Config file resolution order:
 1. `--config <path>` flag
@@ -96,7 +102,7 @@ tools:
 | `source` | yes | — | GitHub `owner/repo` |
 | `mode` | yes | — | `release-checksums` or `pinned` |
 | `release.download_template` | no | `{name}_{os}_{arch}` | Release asset filename to download (include extension, e.g. `.tar.gz`) |
-| `release.checksum_template` | no | `checksums.txt` | Checksum file asset name. Used at runtime by `release-checksums` mode to verify downloads, and by `dep-fetch update` to fetch new checksums when updating a `pinned` mode tool. |
+| `release.checksum_template` | no | `checksums.txt` | Checksum file asset name. Used by `release-checksums` mode at sync time to verify downloads. Used by both modes at sync time to record the checksum file's own hash in the receipt (chain tracking). Re-fetched by `verify` to detect upstream tampering. Used by `dep-fetch update` to fetch new checksums for `pinned` mode tools. |
 | `release.extract` | no | — | Path within archive to use as the binary. Required when `download_template` is an archive. Omit for direct binary assets. |
 | `release.extensions` | no | — | Map of OS name to file extension string (e.g. `linux: tar.gz`). The special key `default` is used as a fallback for any OS not explicitly listed. Populates the `{ext}` template variable. |
 | `checksums` | required for `pinned` | — | Map of `{os}/{arch}` to SHA-256 hex digest of the **downloaded asset** (archive or binary) |
@@ -169,21 +175,21 @@ Checksums for each platform are declared directly in the config. No checksum fil
 
 This mode works for **any** `source` — no allowlist check is performed. `version: latest` is not valid in this mode — hard error at parse time.
 
-`release.checksum_template` is not used during `sync` or `verify`, but **is** used by `dep-fetch update` to locate the upstream checksum file when refreshing checksums. If the tool's release doesn't publish a checksum file, or the file doesn't cover all declared platforms, `update` falls back to downloading each platform asset individually and computing its SHA-256.
-
 Sync flow:
 1. Check receipt in `.dep-fetch/` — skip if version matches and binary checksum is intact
 2. Look up `{os}/{arch}` in `checksums` map — error if missing
-3. Download `{download_template}` asset
-4. Verify SHA-256 of downloaded asset against pinned value
-5. Extract binary if `release.extract` is set (archive assets); decompress if `.gz`
-6. Move binary to `bin_dir/{name}`, set executable bit; write receipt to `.dep-fetch/`
+3. Attempt to download `{checksum_template}` asset — record its SHA-256 in the receipt for chain tracking; if unavailable, continue without it (soft failure, logged)
+4. Download `{download_template}` asset
+5. Verify SHA-256 of downloaded asset against pinned value
+6. Extract binary if `release.extract` is set (archive assets); decompress if `.gz`
+7. Move binary to `bin_dir/{name}`, set executable bit; write receipt to `.dep-fetch/`
 
 Update flow (`dep-fetch update <name> [version]`):
 1. Resolve version (default: latest release tag from GitHub)
 2. Attempt to download `{checksum_template}` asset from the release; parse SHA-256 entries for each declared platform
 3. If the checksum file is missing or does not cover all platforms, download each `{download_template}` asset individually and compute its SHA-256
 4. Rewrite the tool's `version` and `checksums` fields in the config file in-place, preserving all formatting and comments
+5. Invalidate the existing receipt so the next `sync` re-establishes the checksum chain for the new version
 
 ---
 
@@ -195,7 +201,7 @@ Stores the last resolved "latest" tag with a timestamp. TTL: 24 hours. Add `.dep
 
 ### Receipt check (`.dep-fetch/{name}.receipt`)
 
-Before downloading, the tool reads a receipt file from `.dep-fetch/` recording the installed version and the SHA-256 of the binary at install time. A tool is considered up-to-date only when both the version matches **and** the binary on disk still hashes to the recorded checksum. This detects corruption or replacement of the binary independently of the original download verification. Internal file format and atomic write behaviour are described in [implementation.md](./implementation.md).
+Before downloading, the tool reads a receipt file from `.dep-fetch/` recording the installed version, the SHA-256 of the upstream checksum file at install time, and the SHA-256 of the installed binary. A tool is considered up-to-date only when both the version matches **and** the binary on disk still hashes to the recorded checksum. This detects corruption or replacement of the binary independently of the original download verification. The stored checksum file hash is used by `verify` to detect whether the upstream changed a release's checksum file after it was first consumed. Internal file format and atomic write behaviour are described in [implementation.md](./implementation.md).
 
 ---
 
@@ -214,6 +220,8 @@ All errors exit non-zero. No partial state is left in `bin_dir/`.
 | Checksum mismatch | Hard error; nothing written to `bin_dir/`, expected vs actual printed |
 | Checksum file has no entry for the binary name | Hard error (do not fall through) |
 | Binary missing during `verify` | Download and verify (sync semantics); hard error if download fails |
+| Upstream checksum file changed since install | Warning printed to stdout; `verify` continues and exits zero |
+| Checksum file unavailable at sync time (`pinned`) | Chain tracking skipped for that tool; logged; sync succeeds |
 
 ---
 

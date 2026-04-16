@@ -82,18 +82,23 @@ The `.dep-fetch/` directory should be in `.gitignore`. If the file is missing, m
 
 Location: `.dep-fetch/{name}.receipt` (relative to working directory, alongside the version cache).
 
-Two-line text file — version tag on line 1, SHA-256 hex of the installed binary on line 2:
+Three-line text file — version tag on line 1, SHA-256 hex of the upstream checksum file on line 2, SHA-256 hex of the installed binary on line 3:
 
 ```
 v0.3.1
+a4f2c1d8e9b3f7a6c0d5e8f1b2a3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1
 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
 ```
 
-The checksum recorded in the receipt is the SHA-256 of the **extracted binary** placed in `bin_dir/`, not the downloaded asset. For archive assets, these differ intentionally: the asset checksum is verified at download time, and the binary checksum is stored for future receipt checks.
+Line 2 (checksum file hash) may be empty if the upstream checksum file was unavailable at install time — for example, a `pinned` mode tool whose release does not publish a checksum file. In that case the line is present but blank, and `verify` skips the chain check for that tool.
+
+Any receipt that does not contain exactly three lines is treated as missing and triggers a re-sync. This means the legacy two-line format (written by earlier versions) is automatically invalidated on the next run.
+
+The binary checksum on line 3 is the SHA-256 of the **extracted binary** placed in `bin_dir/`, not the downloaded asset. For archive assets, these differ intentionally: the asset checksum is verified at download time against the declared or release-provided value, and the binary checksum is stored in the receipt for future integrity checks.
 
 Written atomically on successful install: a temp file is written in `.dep-fetch/`, then renamed into place. The binary itself is installed the same way — downloaded into a temp file, verified, extracted if needed, then renamed into `bin_dir/`. A failed or interrupted install never leaves a partial binary or a receipt that disagrees with the binary on disk.
 
-A tool is considered up-to-date when both the receipt version matches the configured version **and** the binary currently on disk hashes to the recorded checksum. This detects corruption or replacement of the binary independently of the original download verification.
+A tool is considered up-to-date when both the receipt version matches the configured version **and** the binary currently on disk hashes to the recorded checksum. The stored checksum file hash is used separately by `dep-fetch verify` to detect whether the upstream modified a release's checksum file after it was first consumed.
 
 ---
 

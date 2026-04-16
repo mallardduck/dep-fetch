@@ -3,8 +3,10 @@ package receipt
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -17,8 +19,9 @@ const stateDir = ".dep-fetch"
 
 // Receipt holds the recorded state of an installed binary.
 type Receipt struct {
-	Version  string // e.g. v1.9.14
-	Checksum string // SHA-256 hex of the binary at install time
+	Version          string // e.g. v1.9.14
+	ChecksumFileHash string // SHA-256 hex of the upstream checksum file at install time; empty if unavailable
+	Checksum         string // SHA-256 hex of the binary at install time
 }
 
 func fileName(name string) string {
@@ -26,6 +29,8 @@ func fileName(name string) string {
 }
 
 // Read returns the stored receipt for a tool, or a zero Receipt if not present or malformed.
+// Receipts must contain exactly three lines (version, checksum-file hash, binary checksum).
+// Any other format — including the legacy two-line format — is treated as missing.
 func Read(fs billy.Filesystem, name string) (Receipt, error) {
 	path := filepath.Join(stateDir, fileName(name))
 	f, err := fs.Open(path)
@@ -39,18 +44,20 @@ func Read(fs billy.Filesystem, name string) (Receipt, error) {
 		return Receipt{}, fmt.Errorf("reading receipt for %s: %w", name, err)
 	}
 
-	lines := strings.SplitN(strings.TrimSpace(string(data)), "\n", 2)
-	if len(lines) != 2 || lines[0] == "" || lines[1] == "" {
-		return Receipt{}, nil // malformed or old format — treat as missing
+	lines := strings.SplitN(strings.TrimSpace(string(data)), "\n", 3)
+	if len(lines) != 3 || lines[0] == "" || lines[2] == "" {
+		return Receipt{}, nil // malformed, old format, or incomplete — treat as missing
 	}
 	return Receipt{
-		Version:  strings.TrimSpace(lines[0]),
-		Checksum: strings.TrimSpace(lines[1]),
+		Version:          strings.TrimSpace(lines[0]),
+		ChecksumFileHash: strings.TrimSpace(lines[1]),
+		Checksum:         strings.TrimSpace(lines[2]),
 	}, nil
 }
 
-// Write atomically writes a receipt recording the installed version and binary checksum.
-func Write(fs billy.Filesystem, name, version, checksum string) error {
+// Write atomically writes a receipt recording the installed version, checksum-file hash,
+// and binary checksum. checksumFileHash may be empty if no checksum file was available.
+func Write(fs billy.Filesystem, name, version, checksumFileHash, checksum string) error {
 	if err := fs.MkdirAll(stateDir, 0755); err != nil {
 		return fmt.Errorf("creating state dir: %w", err)
 	}
@@ -61,7 +68,7 @@ func Write(fs billy.Filesystem, name, version, checksum string) error {
 	}
 	tmpName := tmp.Name()
 
-	_, err = fmt.Fprintf(tmp, "%s\n%s\n", version, checksum)
+	_, err = fmt.Fprintf(tmp, "%s\n%s\n%s\n", version, checksumFileHash, checksum)
 	if closeErr := tmp.Close(); closeErr != nil && err == nil {
 		err = closeErr
 	}
@@ -74,6 +81,16 @@ func Write(fs billy.Filesystem, name, version, checksum string) error {
 	if err := fs.Rename(tmpName, dest); err != nil {
 		_ = fs.Remove(tmpName)
 		return fmt.Errorf("installing receipt for %s: %w", name, err)
+	}
+	return nil
+}
+
+// Delete removes the stored receipt for a tool. It is not an error if the receipt does not exist.
+func Delete(fs billy.Filesystem, name string) error {
+	path := filepath.Join(stateDir, fileName(name))
+	err := fs.Remove(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("deleting receipt for %s: %w", name, err)
 	}
 	return nil
 }
@@ -109,7 +126,7 @@ func Verify(fs billy.Filesystem, binDir, name, wantVersion string) (bool, error)
 }
 
 // Manager provides scoped receipt operations for a fixed filesystem and bin directory.
-// Construct one with [NewManager] and call Read, Write, and Verify without repeating
+// Construct one with [NewManager] and call Read, Write, Delete, and Verify without repeating
 // the filesystem and bin directory on every call.
 type Manager struct {
 	fs     billy.Filesystem
@@ -125,8 +142,12 @@ func (m *Manager) Read(name string) (Receipt, error) {
 	return Read(m.fs, name)
 }
 
-func (m *Manager) Write(name, version, checksum string) error {
-	return Write(m.fs, name, version, checksum)
+func (m *Manager) Write(name, version, checksumFileHash, checksum string) error {
+	return Write(m.fs, name, version, checksumFileHash, checksum)
+}
+
+func (m *Manager) Delete(name string) error {
+	return Delete(m.fs, name)
 }
 
 func (m *Manager) Verify(name, wantVersion string) (bool, error) {

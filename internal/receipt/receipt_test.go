@@ -15,7 +15,7 @@ func TestRead_Missing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Read() unexpected error: %v", err)
 	}
-	if r.Version != "" || r.Checksum != "" {
+	if r.Version != "" || r.ChecksumFileHash != "" || r.Checksum != "" {
 		t.Errorf("Read() = %+v, want zero Receipt for missing file", r)
 	}
 }
@@ -37,15 +37,38 @@ func TestRead_Malformed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Read() unexpected error: %v", err)
 	}
-	if r.Version != "" || r.Checksum != "" {
+	if r.Version != "" || r.ChecksumFileHash != "" || r.Checksum != "" {
 		t.Errorf("Read() = %+v, want zero Receipt for malformed file", r)
+	}
+}
+
+// TestRead_LegacyTwoLine ensures the old two-line format is rejected (requires re-sync).
+func TestRead_LegacyTwoLine(t *testing.T) {
+	fs := memfs.New()
+	if err := fs.MkdirAll(stateDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	f, _ := fs.Create(stateDir + "/mytool.receipt")
+	if _, err := fmt.Fprint(f, "v1.0.0\nabc123checksum\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	r, err := Read(fs, "mytool")
+	if err != nil {
+		t.Fatalf("Read() unexpected error: %v", err)
+	}
+	if r.Version != "" || r.ChecksumFileHash != "" || r.Checksum != "" {
+		t.Errorf("Read() = %+v, want zero Receipt for legacy two-line format", r)
 	}
 }
 
 func TestWriteRead_RoundTrip(t *testing.T) {
 	fs := memfs.New()
 
-	if err := Write(fs, "mytool", "v1.2.3", "abc123checksum"); err != nil {
+	if err := Write(fs, "mytool", "v1.2.3", "checksumfilehash", "abc123checksum"); err != nil {
 		t.Fatalf("Write() unexpected error: %v", err)
 	}
 
@@ -55,6 +78,32 @@ func TestWriteRead_RoundTrip(t *testing.T) {
 	}
 	if r.Version != "v1.2.3" {
 		t.Errorf("Read() Version = %q, want %q", r.Version, "v1.2.3")
+	}
+	if r.ChecksumFileHash != "checksumfilehash" {
+		t.Errorf("Read() ChecksumFileHash = %q, want %q", r.ChecksumFileHash, "checksumfilehash")
+	}
+	if r.Checksum != "abc123checksum" {
+		t.Errorf("Read() Checksum = %q, want %q", r.Checksum, "abc123checksum")
+	}
+}
+
+// TestWriteRead_EmptyChecksumFileHash confirms an empty checksum file hash round-trips correctly.
+func TestWriteRead_EmptyChecksumFileHash(t *testing.T) {
+	fs := memfs.New()
+
+	if err := Write(fs, "mytool", "v1.2.3", "", "abc123checksum"); err != nil {
+		t.Fatalf("Write() unexpected error: %v", err)
+	}
+
+	r, err := Read(fs, "mytool")
+	if err != nil {
+		t.Fatalf("Read() unexpected error: %v", err)
+	}
+	if r.Version != "v1.2.3" {
+		t.Errorf("Read() Version = %q, want %q", r.Version, "v1.2.3")
+	}
+	if r.ChecksumFileHash != "" {
+		t.Errorf("Read() ChecksumFileHash = %q, want empty", r.ChecksumFileHash)
 	}
 	if r.Checksum != "abc123checksum" {
 		t.Errorf("Read() Checksum = %q, want %q", r.Checksum, "abc123checksum")
@@ -75,7 +124,7 @@ func TestVerify_MissingReceipt(t *testing.T) {
 func TestVerify_VersionMismatch(t *testing.T) {
 	fs := memfs.New()
 
-	if err := Write(fs, "mytool", "v1.0.0", "somechecksum"); err != nil {
+	if err := Write(fs, "mytool", "v1.0.0", "", "somechecksum"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -92,7 +141,7 @@ func TestVerify_BinaryMissing(t *testing.T) {
 	fs := memfs.New()
 
 	// Receipt exists with correct version but binary doesn't.
-	if err := Write(fs, "mytool", "v1.0.0", "somechecksum"); err != nil {
+	if err := Write(fs, "mytool", "v1.0.0", "", "somechecksum"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -130,7 +179,7 @@ func TestVerify_OK(t *testing.T) {
 	h.Write(binContent)
 	checksum := hex.EncodeToString(h.Sum(nil))
 
-	if err := Write(fs, "mytool", "v1.0.0", checksum); err != nil {
+	if err := Write(fs, "mytool", "v1.0.0", "somefilechecksum", checksum); err != nil {
 		t.Fatal(err)
 	}
 
@@ -160,7 +209,7 @@ func TestVerify_Tampered(t *testing.T) {
 	}
 
 	// Write receipt with wrong checksum (simulates tampering).
-	if err := Write(fs, "mytool", "v1.0.0", "wrongchecksum"); err != nil {
+	if err := Write(fs, "mytool", "v1.0.0", "", "wrongchecksum"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -173,13 +222,41 @@ func TestVerify_Tampered(t *testing.T) {
 	}
 }
 
+func TestDelete_Existing(t *testing.T) {
+	fs := memfs.New()
+
+	if err := Write(fs, "mytool", "v1.0.0", "", "somechecksum"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Delete(fs, "mytool"); err != nil {
+		t.Fatalf("Delete() unexpected error: %v", err)
+	}
+
+	// Receipt should now be gone.
+	r, err := Read(fs, "mytool")
+	if err != nil {
+		t.Fatalf("Read() after Delete() unexpected error: %v", err)
+	}
+	if r.Version != "" {
+		t.Errorf("Read() after Delete() = %+v, want zero Receipt", r)
+	}
+}
+
+func TestDelete_NotExist(t *testing.T) {
+	fs := memfs.New()
+	// Deleting a non-existent receipt must not error.
+	if err := Delete(fs, "nothere"); err != nil {
+		t.Fatalf("Delete() unexpected error for missing receipt: %v", err)
+	}
+}
+
 func TestManager(t *testing.T) {
 	fs := memfs.New()
 	binDir := "./bin"
 	m := NewManager(fs, binDir)
 
 	// Write a receipt via manager.
-	if err := m.Write("tool", "v1.0.0", "abc"); err != nil {
+	if err := m.Write("tool", "v1.0.0", "filechecksum", "abc"); err != nil {
 		t.Fatalf("Manager.Write() unexpected error: %v", err)
 	}
 
@@ -188,8 +265,8 @@ func TestManager(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Manager.Read() unexpected error: %v", err)
 	}
-	if r.Version != "v1.0.0" || r.Checksum != "abc" {
-		t.Errorf("Manager.Read() = %+v, want {v1.0.0, abc}", r)
+	if r.Version != "v1.0.0" || r.ChecksumFileHash != "filechecksum" || r.Checksum != "abc" {
+		t.Errorf("Manager.Read() = %+v, want {v1.0.0, filechecksum, abc}", r)
 	}
 
 	// Verify with missing binary → false, nil.
@@ -199,5 +276,17 @@ func TestManager(t *testing.T) {
 	}
 	if ok {
 		t.Error("Manager.Verify() = true, want false when binary is missing")
+	}
+
+	// Delete via manager.
+	if err := m.Delete("tool"); err != nil {
+		t.Fatalf("Manager.Delete() unexpected error: %v", err)
+	}
+	r, err = m.Read("tool")
+	if err != nil {
+		t.Fatalf("Manager.Read() after Delete() unexpected error: %v", err)
+	}
+	if r.Version != "" {
+		t.Errorf("Manager.Read() after Delete() = %+v, want zero Receipt", r)
 	}
 }

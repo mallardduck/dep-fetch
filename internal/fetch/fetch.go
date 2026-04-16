@@ -55,6 +55,8 @@ func Sync(fs billy.Filesystem, cfg *config.Config, binDir string, filter []strin
 }
 
 // Verify checks installed tool receipts and binary integrity; missing or invalid tools are synced.
+// After confirming the binary is intact, it re-fetches the upstream checksum file and warns if
+// it has changed since the tool was installed.
 func Verify(fs billy.Filesystem, cfg *config.Config, binDir string) error {
 	receipts := receipt.NewManager(fs, binDir)
 	for _, t := range cfg.Tools {
@@ -75,9 +77,47 @@ func Verify(fs billy.Filesystem, cfg *config.Config, binDir string) error {
 			continue
 		}
 
+		// Binary is intact. Now verify the upstream checksum file hasn't changed.
+		r, err := receipts.Read(t.Name)
+		if err != nil {
+			return fmt.Errorf("verify %s: reading receipt: %w", t.Name, err)
+		}
+		if r.ChecksumFileHash != "" {
+			if warnErr := verifyChecksumFileHash(t, version, r.ChecksumFileHash); warnErr != nil {
+				fmt.Printf("  WARNING: %s: %v\n", t.Name, warnErr)
+			}
+		}
+
 		fmt.Printf("  %s: ok (%s)\n", t.Name, version)
 	}
 	return nil
+}
+
+// verifyChecksumFileHash re-fetches the upstream checksum file and compares its hash to the
+// value recorded in the receipt. Returns an error if the file has changed or cannot be fetched.
+func verifyChecksumFileHash(t config.Tool, version, expectedHash string) error {
+	vars := release.Vars{Name: t.Name, Version: version}
+	checksumAsset := release.Render(t.ChecksumTemplate(), vars)
+	checksumURL := release.AssetURL(t.Owner(), t.Repo(), version, checksumAsset)
+
+	var buf bytes.Buffer
+	if err := gh.DownloadAsset(checksumURL, &buf); err != nil {
+		return fmt.Errorf("re-downloading checksum file %s: %w", checksumAsset, err)
+	}
+
+	actualHash := sha256Hex(buf.Bytes())
+	if !strings.EqualFold(actualHash, expectedHash) {
+		return fmt.Errorf(
+			"checksum file %s has changed since installation (receipt: %s, upstream: %s) — upstream may have modified release assets",
+			checksumAsset, expectedHash, actualHash,
+		)
+	}
+	return nil
+}
+
+// InvalidateReceipt removes the stored receipt for a tool, forcing re-sync on the next run.
+func InvalidateReceipt(fs billy.Filesystem, name string) error {
+	return receipt.Delete(fs, name)
 }
 
 // List returns the status of all declared tools.
@@ -126,6 +166,16 @@ func syncTool(fs billy.Filesystem, binDir string, t config.Tool) error {
 		return err
 	}
 	if ok {
+		// Binary is intact — still check the upstream checksum file hasn't changed.
+		r, err := receipts.Read(t.Name)
+		if err != nil {
+			return err
+		}
+		if r.ChecksumFileHash != "" {
+			if warnErr := verifyChecksumFileHash(t, version, r.ChecksumFileHash); warnErr != nil {
+				fmt.Printf("  WARNING: %s: %v\n", t.Name, warnErr)
+			}
+		}
 		fmt.Printf("  %s: already at %s\n", t.Name, version)
 		return nil
 	}
@@ -143,13 +193,13 @@ func syncTool(fs billy.Filesystem, binDir string, t config.Tool) error {
 	binTmpl := release.Render(t.DownloadTemplate(), vars)
 	extractPath := release.Render(t.ExtractPath(), vars)
 
-	var binChecksum string
+	var binChecksum, checksumFileHash string
 	switch t.Mode {
 	case config.ModePinned:
-		binChecksum, err = syncPinned(fs, binDir, t, version, goos, goarch, binTmpl, extractPath)
+		binChecksum, checksumFileHash, err = syncPinned(fs, binDir, t, version, goos, goarch, binTmpl, extractPath)
 	case config.ModeReleaseChecksums:
 		checksumAsset := release.Render(t.ChecksumTemplate(), vars)
-		binChecksum, err = syncReleaseChecksums(fs, binDir, t, version, binTmpl, extractPath, checksumAsset)
+		binChecksum, checksumFileHash, err = syncReleaseChecksums(fs, binDir, t, version, binTmpl, extractPath, checksumAsset)
 	default:
 		return fmt.Errorf("unknown mode %q for tool %s", t.Mode, t.Name)
 	}
@@ -157,10 +207,10 @@ func syncTool(fs billy.Filesystem, binDir string, t config.Tool) error {
 		return err
 	}
 
-	return receipts.Write(t.Name, version, binChecksum)
+	return receipts.Write(t.Name, version, checksumFileHash, binChecksum)
 }
 
-func syncPinned(fs billy.Filesystem, binDir string, t config.Tool, version, goos, goarch, assetName, extractPath string) (string, error) {
+func syncPinned(fs billy.Filesystem, binDir string, t config.Tool, version, goos, goarch, assetName, extractPath string) (binChecksum, checksumFileHash string, err error) {
 	plat := goos + "/" + goarch
 	expected, ok := t.Checksums[plat]
 	if !ok {
@@ -168,25 +218,42 @@ func syncPinned(fs billy.Filesystem, binDir string, t config.Tool, version, goos
 		for p := range t.Checksums {
 			platforms = append(platforms, p)
 		}
-		return "", fmt.Errorf("no checksum for platform %s; available: %s", plat, strings.Join(platforms, ", "))
+		return "", "", fmt.Errorf("no checksum for platform %s; available: %s", plat, strings.Join(platforms, ", "))
 	}
 
-	return downloadAndInstall(fs, binDir, t.Name, t.Owner(), t.Repo(), version, assetName, extractPath, expected)
+	// Attempt to download the checksum file so its hash can be recorded in the receipt.
+	// This is a soft step — failure means we can't track the chain but sync still proceeds.
+	vars := release.Vars{Name: t.Name, Version: version}
+	checksumAsset := release.Render(t.ChecksumTemplate(), vars)
+	checksumURL := release.AssetURL(t.Owner(), t.Repo(), version, checksumAsset)
+
+	var checksumBuf bytes.Buffer
+	if dlErr := gh.DownloadAsset(checksumURL, &checksumBuf); dlErr != nil {
+		fmt.Printf("  %s: checksum file unavailable, chain tracking skipped (%v)\n", t.Name, dlErr)
+	} else {
+		checksumFileHash = sha256Hex(checksumBuf.Bytes())
+	}
+
+	binChecksum, err = downloadAndInstall(fs, binDir, t.Name, t.Owner(), t.Repo(), version, assetName, extractPath, expected)
+	return binChecksum, checksumFileHash, err
 }
 
-func syncReleaseChecksums(fs billy.Filesystem, binDir string, t config.Tool, version, assetName, extractPath, checksumAsset string) (string, error) {
+func syncReleaseChecksums(fs billy.Filesystem, binDir string, t config.Tool, version, assetName, extractPath, checksumAsset string) (binChecksum, checksumFileHash string, err error) {
 	checksumURL := release.AssetURL(t.Owner(), t.Repo(), version, checksumAsset)
 	var checksumBuf bytes.Buffer
 	if err := gh.DownloadAsset(checksumURL, &checksumBuf); err != nil {
-		return "", fmt.Errorf("downloading checksum file: %w", err)
+		return "", "", fmt.Errorf("downloading checksum file: %w", err)
 	}
+
+	checksumFileHash = sha256Hex(checksumBuf.Bytes())
 
 	expected, err := parseChecksumFile(checksumBuf.Bytes(), assetName)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
-	return downloadAndInstall(fs, binDir, t.Name, t.Owner(), t.Repo(), version, assetName, extractPath, expected)
+	binChecksum, err = downloadAndInstall(fs, binDir, t.Name, t.Owner(), t.Repo(), version, assetName, extractPath, expected)
+	return binChecksum, checksumFileHash, err
 }
 
 // downloadAndInstall downloads an asset, verifies its checksum against expectedChecksum,
