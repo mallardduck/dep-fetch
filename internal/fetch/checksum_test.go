@@ -151,6 +151,22 @@ func makeTool(platforms []string) *config.Tool {
 	}
 }
 
+func makeToolWithExt(platforms []string, extensions map[string]string, downloadTmpl string) *config.Tool {
+	checksums := make(map[string]string, len(platforms))
+	for _, p := range platforms {
+		checksums[p] = ""
+	}
+	return &config.Tool{
+		Name:      "mytool",
+		Source:    "owner/repo",
+		Checksums: checksums,
+		Release: &config.ReleaseConfig{
+			DownloadTemplate: downloadTmpl,
+			Extensions:       extensions,
+		},
+	}
+}
+
 func TestFetchChecksums_FromChecksumFile(t *testing.T) {
 	tool := makeTool([]string{"linux/amd64"})
 	// Default template renders to "mytool_linux_amd64"; checksum file lists it.
@@ -267,5 +283,62 @@ func TestFetchChecksums_InvalidPlatformFormat(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "invalid platform format") {
 		t.Errorf("FetchChecksums() error = %q, want 'invalid platform format'", err.Error())
+	}
+}
+
+// TestFetchChecksums_PerOSExtension verifies that per-OS extensions are correctly applied
+// when rendering asset names. This was previously broken: Ext was never set in FetchChecksums,
+// so templates using {ext} produced names like "mytool_linux_amd64." instead of
+// "mytool_linux_amd64.tar.gz".
+func TestFetchChecksums_PerOSExtension_FromChecksumFile(t *testing.T) {
+	tool := makeToolWithExt(
+		[]string{"linux/amd64", "darwin/arm64"},
+		map[string]string{"linux": "tar.gz", "darwin": "zip", "default": "tar.gz"},
+		"{name}_{os}_{arch}.{ext}",
+	)
+	checksumFile := []byte("aaa111  mytool_linux_amd64.tar.gz\nbbb222  mytool_darwin_arm64.zip\n")
+
+	mockHTTPDispatch(t, func(req *http.Request) *http.Response {
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(checksumFile)), Header: make(http.Header)}
+	})
+
+	got, err := FetchChecksums(tool, "v1.0.0")
+	if err != nil {
+		t.Fatalf("FetchChecksums() unexpected error: %v", err)
+	}
+	if got["linux/amd64"] != "aaa111" {
+		t.Errorf("linux/amd64 = %q, want %q", got["linux/amd64"], "aaa111")
+	}
+	if got["darwin/arm64"] != "bbb222" {
+		t.Errorf("darwin/arm64 = %q, want %q", got["darwin/arm64"], "bbb222")
+	}
+}
+
+func TestFetchChecksums_PerOSExtension_FallbackToIndividual(t *testing.T) {
+	tool := makeToolWithExt(
+		[]string{"linux/amd64"},
+		map[string]string{"linux": "tar.gz", "default": "tar.gz"},
+		"{name}_{os}_{arch}.{ext}",
+	)
+	assetContent := []byte("binary data")
+	assetChecksum := sha256Hex(assetContent)
+
+	mockHTTPDispatch(t, func(req *http.Request) *http.Response {
+		if strings.Contains(req.URL.Path, "checksums.txt") {
+			return &http.Response{StatusCode: 404, Body: io.NopCloser(bytes.NewReader(nil)), Header: make(http.Header)}
+		}
+		// Verify the requested URL uses the correct extension.
+		if !strings.HasSuffix(req.URL.Path, "mytool_linux_amd64.tar.gz") {
+			return &http.Response{StatusCode: 404, Body: io.NopCloser(bytes.NewReader(nil)), Header: make(http.Header)}
+		}
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(assetContent)), Header: make(http.Header)}
+	})
+
+	got, err := FetchChecksums(tool, "v1.0.0")
+	if err != nil {
+		t.Fatalf("FetchChecksums() unexpected error: %v", err)
+	}
+	if got["linux/amd64"] != assetChecksum {
+		t.Errorf("FetchChecksums() linux/amd64 = %q, want %q", got["linux/amd64"], assetChecksum)
 	}
 }

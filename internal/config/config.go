@@ -67,7 +67,7 @@ func (t *Tool) Repo() string {
 	return repo
 }
 
-func (t *Tool) BinaryTemplate() string {
+func (t *Tool) DownloadTemplate() string {
 	if t.Release != nil && t.Release.DownloadTemplate != "" {
 		return t.Release.DownloadTemplate
 	}
