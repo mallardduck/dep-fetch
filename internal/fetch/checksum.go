@@ -39,11 +39,11 @@ func sha256Hex(data []byte) string {
 // at the given version. It first attempts to download and parse the tool's checksum file; if
 // that fails or is incomplete, it falls back to downloading each asset individually.
 func FetchChecksums(tool *config.Tool, version string) (map[string]string, error) {
-	vars := release.Vars{
+	baseVars := release.Vars{
 		Name:    tool.Name,
 		Version: version,
 	}
-	checksumAsset := release.Render(tool.ChecksumTemplate(), vars)
+	checksumAsset := release.Render(tool.ChecksumTemplate(), baseVars)
 	checksumURL := release.AssetURL(tool.Owner(), tool.Repo(), version, checksumAsset)
 
 	fmt.Printf("  Attempting to use checksum file %s...\n", checksumAsset)
@@ -53,13 +53,14 @@ func FetchChecksums(tool *config.Tool, version string) (map[string]string, error
 		allFound := true
 		tempChecksums := make(map[string]string)
 		for plat := range tool.Checksums {
+			vars := baseVars
 			parts := strings.Split(plat, "/")
 			if len(parts) != 2 {
 				return nil, fmt.Errorf("invalid platform format: %s", plat)
 			}
-			v := vars
-			v.OS, v.Arch = parts[0], parts[1]
-			assetName := release.Render(tool.BinaryTemplate(), v)
+			vars.OS, vars.Arch = parts[0], parts[1]
+			vars.Ext = tool.Ext(vars.OS)
+			assetName := release.Render(tool.DownloadTemplate(), vars)
 			sum, err := parseChecksumFile(checksumBuf.Bytes(), assetName)
 			if err != nil {
 				allFound = false
@@ -80,12 +81,13 @@ func FetchChecksums(tool *config.Tool, version string) (map[string]string, error
 	checksums := make(map[string]string)
 	for plat := range tool.Checksums {
 		parts := strings.Split(plat, "/")
-		v := vars
-		v.OS, v.Arch = parts[0], parts[1]
-		assetName := release.Render(tool.BinaryTemplate(), v)
+		vars := baseVars
+		vars.OS, vars.Arch = parts[0], parts[1]
+		vars.Ext = tool.Ext(vars.OS)
+		assetName := release.Render(tool.DownloadTemplate(), vars)
 		assetURL := release.AssetURL(tool.Owner(), tool.Repo(), version, assetName)
 
-		fmt.Printf("  Fetching %s/%s (%s)...\n", v.OS, v.Arch, assetName)
+		fmt.Printf("  Fetching %s/%s (%s)...\n", vars.OS, vars.Arch, assetName)
 		var buf bytes.Buffer
 		if err := gh.DownloadAsset(assetURL, &buf); err != nil {
 			return nil, fmt.Errorf("downloading %s: %w", assetName, err)

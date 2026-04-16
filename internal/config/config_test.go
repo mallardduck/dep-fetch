@@ -32,19 +32,19 @@ func TestToolOwnerRepo(t *testing.T) {
 func TestToolBinaryTemplate(t *testing.T) {
 	t.Run("default when release is nil", func(t *testing.T) {
 		tool := Tool{}
-		if got := tool.BinaryTemplate(); got != "{name}_{os}_{arch}" {
+		if got := tool.DownloadTemplate(); got != "{name}_{os}_{arch}" {
 			t.Errorf("BinaryTemplate() = %q, want default", got)
 		}
 	})
 	t.Run("default when release template is empty", func(t *testing.T) {
 		tool := Tool{Release: &ReleaseConfig{}}
-		if got := tool.BinaryTemplate(); got != "{name}_{os}_{arch}" {
+		if got := tool.DownloadTemplate(); got != "{name}_{os}_{arch}" {
 			t.Errorf("BinaryTemplate() = %q, want default", got)
 		}
 	})
 	t.Run("custom template", func(t *testing.T) {
 		tool := Tool{Release: &ReleaseConfig{DownloadTemplate: "{name}_{version}_{os}"}}
-		if got := tool.BinaryTemplate(); got != "{name}_{version}_{os}" {
+		if got := tool.DownloadTemplate(); got != "{name}_{version}_{os}" {
 			t.Errorf("BinaryTemplate() = %q, want custom", got)
 		}
 	})

@@ -61,6 +61,10 @@ If version is "latest", the latest release tag is fetched from GitHub.`,
 			return err
 		}
 
+		if err := fetch.InvalidateReceipt(fs, toolName); err != nil {
+			return fmt.Errorf("invalidating receipt for %s: %w", toolName, err)
+		}
+
 		fmt.Printf("Successfully updated %s to %s in %s\n", toolName, newVersion, cfg.FilePath())
 		return nil
 	},

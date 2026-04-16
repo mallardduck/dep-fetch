@@ -57,8 +57,11 @@ tools:
       darwin/arm64: "fed321..."
     release:
       download_template: "golangci-lint-{version|trimprefix:v}-{os}-{arch}.tar.gz"
+      checksum_template: "golangci-lint-{version|trimprefix:v}-checksums.txt"
       extract: "golangci-lint-{version|trimprefix:v}-{os}-{arch}/golangci-lint"
 ```
+
+`release.checksum_template` defaults to `checksums.txt` and is used in all modes. At sync time dep-fetch records the SHA-256 of the upstream checksum file in the receipt. `dep-fetch verify` re-fetches it and warns if it has changed since the tool was installed — catching silent asset replacement even for `pinned` tools whose per-platform checksums live in the config.
 
 **`release-checksums` mode** — dep-fetch fetches and parses the tool's own `checksums.txt` at runtime. No per-platform checksums needed.
 
